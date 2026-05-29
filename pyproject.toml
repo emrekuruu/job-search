@@ -1,0 +1,45 @@
+[project]
+name = "job-search"
+version = "0.1.0"
+description = "Resume -> job-search distillation pipeline: DeepSeek V4 teacher -> Qwen3.5-9B student, PydanticAI calling layer."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic-ai-slim[openai]>=0.0.40",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "python-dotenv>=1.0",
+    "datasets>=2.20",
+    "python-jobspy>=1.1.80",
+    "modal>=0.64",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+gen-queries = "job_search.pipeline.gen_queries:main"
+fetch-jobs = "job_search.pipeline.fetch_jobs:main"
+gen-evals = "job_search.pipeline.gen_evals:main"
+to-sft = "job_search.pipeline.to_sft:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/job_search"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Prompts are intentionally f-strings even without placeholders (project style).
+ignore = ["F541"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
