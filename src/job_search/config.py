@@ -55,19 +55,35 @@ class Settings(BaseSettings):
     deepseek_api_key: str | None = None
     teacher_model: str = "deepseek-v4-pro"
 
+    # Teacher request controls (per-call generation settings)
+    teacher_temperature: float = 1.0
+    teacher_max_tokens: int = 16_000
+    teacher_timeout: float = 600.0  # seconds; reasoning calls are slow
+
+    # Concurrency + rate-limit resilience for teacher calls
+    teacher_concurrency: int = 8
+    teacher_max_retries: int = 5
+    teacher_retry_base_delay: float = 2.0  # exponential backoff base, seconds
+
     # --- Student (training + serving) ---
-    student_model: str = "Qwen/Qwen3.5-9B"
+    student_model: str = "Qwen/Qwen3-8B"
     hf_token: str | None = None
     vllm_api_base: str | None = None
     vllm_api_key: str = "EMPTY"
 
     # --- Start-small knobs ---
-    resume_sample_size: int = 30
+    resume_sample_size: int | None = None  # None = use the entire dataset; set an int to sample
     max_queries_per_resume: int = 4
     jobs_per_query: int = 5
-    max_eval_pairs: int = 60
+    jobs_sleep_between: float = 3.0  # pause between LinkedIn scrapes (rate-limit hygiene)
+    max_job_queries: int | None = None  # cap total queries scraped (None = all); for smoke tests
+    max_eval_pairs: int | None = None  # cap eval pairs / teacher calls (None = evaluate all jobs)
     max_resume_chars: int = 12_000
-    random_seed: int = 7
+    random_seed: int = 42
+
+    # --- SFT train/val/test split (applied in sft_format.py) ---
+    val_size: int = 300
+    test_size: int = 300
 
     # --- Paths ---
     data_dir: Path = _PROJECT_ROOT / "data"

@@ -5,6 +5,8 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
+Record = dict[str, Any]
+
 
 def write_jsonl(path: Path, records: Iterable[dict[str, Any]]) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)

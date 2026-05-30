@@ -31,7 +31,9 @@ def load_resumes(
     max_chars = max_chars if max_chars is not None else settings.max_resume_chars
 
     ds = load_dataset(DATASET_ID, split="train")
-    ds = ds.shuffle(seed=seed).select(range(min(sample_size, len(ds))))
+    ds = ds.shuffle(seed=seed)
+    if sample_size is not None:
+        ds = ds.select(range(min(sample_size, len(ds))))
 
     resumes: list[Resume] = []
     for row in ds:

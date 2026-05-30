@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import modal
 
-BASE_MODEL = "Qwen/Qwen3.5-9B"
+BASE_MODEL = "Qwen/Qwen3-8B"
 VLLM_PORT = 8000
 
+# Image deps live in pyproject.toml's `[dependency-groups].serve`.
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    .pip_install("vllm==0.7.3", "huggingface_hub[hf_transfer]==0.29.1")
+    .uv_sync(uv_project_dir="./", groups=["serve"], gpu="A100")
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 
@@ -32,13 +33,10 @@ def serve() -> None:
         "vllm",
         "serve",
         BASE_MODEL,
-        "--host",
-        "0.0.0.0",
-        "--port",
-        str(VLLM_PORT),
+        "--host", "0.0.0.0",
+        "--port", str(VLLM_PORT),
         "--enable-lora",
-        "--max-lora-rank",
-        "16",
+        "--max-lora-rank", "16",
         "--lora-modules",
         "query_gen=/adapters/query_gen",
         "fit_eval=/adapters/fit_eval",

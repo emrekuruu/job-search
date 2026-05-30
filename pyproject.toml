@@ -5,19 +5,15 @@ description = "Resume -> job-search distillation pipeline: DeepSeek V4 teacher -
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "pydantic-ai-slim[openai]>=0.0.40",
+    # Main runtime — used by the local data-curation pipeline and PydanticAI student calls
+    "pydantic-ai-slim[openai]>=1.0",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "python-dotenv>=1.0",
-    "datasets>=2.20",
+    "datasets>=3.10",
     "python-jobspy>=1.1.80",
+    "tqdm>=4.66",
     "modal>=0.64",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "ruff>=0.6",
 ]
 
 [project.scripts]
@@ -43,3 +39,48 @@ ignore = ["F541"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv]
+# Default `uv sync` installs main + dev + space so local dev covers data curation, linting,
+# and the Gradio app simultaneously — no more "ran uv sync and gradio vanished". Modal images
+# and HF Space deploys still use explicit `--group train`/`--group serve`/`--group space`,
+# so isolation across deployment targets is preserved where it matters.
+default-groups = ["dev", "space"]
+
+
+# --- PEP 735 dependency groups -------------------------------------------------
+# Single source of truth. Modal images install via Image.uv_sync(groups=[...]).
+# `uv sync` (no flag) installs main runtime + `dev` — what the local Mac needs.
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "transformers>=5.2",   # local chat-template render checks (no torch needed)
+    "jinja2>=3.1.6",
+    "huggingface_hub>=0.26",  # required by scripts/deploy_space.py
+]
+
+# Modal training image — Qwen3-8B is a pure transformer (GQA). No custom CUDA kernels needed,
+# SDPA in mainline torch handles attention. Vanilla HF stack only — nothing more.
+train = [
+    "torch>=2.6",            # CUDA build pulled in by Modal's gpu= setting
+    "transformers>=4.51",    # Qwen3 added in 4.51 (Apr 2025); model_type "qwen3"
+    "trl>=1.0",              # SFTTrainer + assistant_only_loss
+    "peft>=0.16",
+    "accelerate>=1.10",
+    "datasets>=3.10",
+]
+
+# Modal serving image — vLLM multi-LoRA OpenAI-compatible endpoint.
+serve = [
+    "vllm>=0.10",          # version that supports Qwen3.5 architecture
+    "huggingface_hub[hf_transfer]>=0.30",
+]
+
+# Gradio demo Space — ONLY installed when running the Space, never elsewhere.
+# `gradio` + `pymupdf` must not leak into the Modal train/serve images (web assets bloat) or
+# vice-versa (`torch`/`trl`/`vllm` must never end up on the Space build).
+space = [
+    "gradio>=5",           # 5.x (May 2026): Blocks streaming + theming + queue
+    "pymupdf>=1.24",       # PDF text extraction (PyMuPDF / fitz)
+]
