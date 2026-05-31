@@ -1,99 +1,107 @@
----
-title: Job Search Assistant
-emoji: 🎯
-colorFrom: indigo
-colorTo: purple
-sdk: gradio
-sdk_version: "6.15.2"
-app_file: app.py
-hardware: zero-gpu
-python_version: "3.10"
-pinned: false
-short_description: Upload a resume, get ranked + explained LinkedIn matches
-tags:
-  - llama-cpp
-  - lora
-  - qwen3
-models:
-  - emrekuruu/job-searcher-qwen3-8B-gguf
----
+# Job Search Assistant
 
-# job-search
+Drop a resume, get ranked LinkedIn jobs **with reasoning** — end-to-end on HuggingFace.
 
-Distillation pipeline: a **DeepSeek V4** reasoning teacher generates two training datasets
-via **PydanticAI**, and a **Qwen/Qwen3-8B** student is distilled (bf16 LoRA SFT) on them on
-**Modal**, then served via **llama.cpp** on a HuggingFace **ZeroGPU** Space.
+[![Build Small Hackathon](https://img.shields.io/badge/Built%20for-Build%20Small%20Hackathon-ff6b6b)](https://huggingface.co/build-small-hackathon)
+[![Live Space](https://img.shields.io/badge/🤗%20Space-job--search--assistant-blue)](https://huggingface.co/spaces/emrekuruu/job-search-assistant)
+[![Model](https://img.shields.io/badge/🤗%20Model-Qwen3--8B%20LoRA-orange)](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B)
+[![Dataset](https://img.shields.io/badge/🤗%20Dataset-job--search--distill-blue)](https://huggingface.co/datasets/emrekuruu/job-search-distill)
+[![Built with Gradio](https://img.shields.io/badge/Built%20with-Gradio-orange?logo=gradio)](https://www.gradio.app)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Two tasks:
-1. **Query generation** — resume → a set of LinkedIn job-search queries.
-2. **Fit evaluation** — (resume, job listing) → 5 dimensions × 20 pts (= 100) + reasoning.
+A Qwen3-8B student distilled from **DeepSeek V4 Pro** to do two things from a single resume:
+draft LinkedIn job-search queries, and score each returned job's fit on a 5-dimension rubric
+with written reasoning. The student runs **in-process via llama.cpp** on a ZeroGPU Space — no
+external API calls at inference time.
+
+## Live demo
+
+<gradio-app src="https://emrekuruu-job-search-assistant.hf.space"></gradio-app>
+
+→ Or open directly: **[emrekuruu/job-search-assistant](https://huggingface.co/spaces/emrekuruu/job-search-assistant)**
 
 ## Pipeline
 
 ```
-resumes ─▶ query_agent ─▶ dataset1.jsonl ─▶ JobSpy ─▶ jobs.jsonl ─▶ eval_agent ─▶ dataset2.jsonl
-                                   └────────────── to_sft ──────────────┘
-                                                     │
-data/sft/*.jsonl ─▶ Modal LoRA SFT ─▶ LoRA adapters ─▶ Modal convert-to-gguf ─▶ HF ZeroGPU Space (llama.cpp)
+resumes ─▶ query_agent ─▶ queries ─▶ JobSpy ─▶ jobs ─▶ eval_agent ─▶ (resume,job,score)
+                              └──────────────── teacher labels ───────────────┘
+                                                       │
+                              SFT splits ─▶ Modal LoRA training ─▶ adapters
+                                                       │
+                                       Modal convert-to-gguf ─▶ HF model repo
+                                                       │
+                                       HF ZeroGPU Space (llama.cpp) ──▶ you
 ```
 
-## Setup
+## Resources
 
-```bash
-uv sync --extra dev
-cp .env.example .env   # set DEEPSEEK_API_KEY
-```
+| | |
+|---|---|
+| **Live Space** | [emrekuruu/job-search-assistant](https://huggingface.co/spaces/emrekuruu/job-search-assistant) |
+| **Dataset** | [emrekuruu/job-search-distill](https://huggingface.co/datasets/emrekuruu/job-search-distill) — four configs: `resume_corpus`, `query_gen_pairings`, `jobs`, `job_evals` |
+| **Model (safetensors)** | [emrekuruu/job-searcher-qwen3-8B](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B) — two LoRA adapters on Qwen3-8B |
+| **Model (GGUF)** | [emrekuruu/job-searcher-qwen3-8B-gguf](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B-gguf) — base Q4_K_M + LoRA-GGUF adapters for llama.cpp |
+| **Source code** | [github.com/emrekuruu/job-search](https://github.com/emrekuruu/job-search) |
 
-## Generate data (local)
+## Dataset
 
-```bash
-uv run gen-queries     # Stage 1: dataset1.jsonl
-uv run fetch-jobs      # Stage 2: jobs.jsonl   (LinkedIn rate-limits; keep small)
-uv run gen-evals       # Stage 3: dataset2.jsonl
-uv run to-sft          # data/sft/query_gen.jsonl, data/sft/fit_eval.jsonl
-uv run pytest
-```
+[`emrekuruu/job-search-distill`](https://huggingface.co/datasets/emrekuruu/job-search-distill)
+bundles the entire distillation corpus:
 
-## Train + publish GGUFs (Modal, GPU + CPU)
+- `resume_corpus` — 2.5k resumes, built on [Divyaamith/Kaggle-Resume](https://huggingface.co/datasets/Divyaamith/Kaggle-Resume).
+- `query_gen_pairings` — `(resume → reasoning + LinkedIn query set)` from the teacher.
+- `jobs` — ~9.9k LinkedIn postings scraped via [JobSpy](https://github.com/Bunsly/JobSpy).
+- `job_evals` — `(resume, job) → reasoning + 5-dimension fit score (0–100)`.
 
-```bash
-modal run modal_apps/train.py --task query_gen
-modal run modal_apps/train.py --task fit_eval --epochs 1
-modal run modal_apps/convert_to_gguf.py     # quantize base + LoRAs -> emrekuruu/job-searcher-qwen3-8B-gguf
-```
+Each row carries explicit foreign keys (`resume_id`, `query_id`, `job_id`) so joins are clean.
 
-The 5 fit dimensions in `src/job_search/config.py` are placeholders (`TODO: research`); edit and
-regenerate `dataset2` + retrain the `fit_eval` adapter when finalized.
+## Model
 
-## Gradio demo (local)
+A bf16 LoRA fine-tune of [Qwen/Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B). Two adapters:
+
+- **`query_gen`** — resume → set of LinkedIn search queries.
+- **`fit_eval`** — `(resume, job)` → 5 × 20-pt dimension scores + overall reasoning.
+
+Both are published in [safetensors form](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B)
+(for `transformers` + `peft`) and as
+[GGUF](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B-gguf) alongside a Q4_K_M
+quantization of the base model (for `llama-cpp-python`).
+
+## Run locally
 
 ```bash
 uv sync --group space
-uv run python app.py        # opens http://localhost:7860
+uv run python app.py    # opens http://localhost:7860
 ```
 
-## Deploy the Space to HuggingFace
+The Space's `app.py` downloads the GGUF weights from the Hub on first launch (~5 GB), then
+runs Qwen3-8B + both LoRA adapters in-process via llama.cpp.
 
-The deploy script ([`scripts/deploy_space.py`](scripts/deploy_space.py)) is idempotent:
+## Reproducing the model
+
+The end-to-end pipeline lives in this repo:
 
 ```bash
-# First time: log in once (writes a cached token)
-uv run hf auth login
-
-# Deploy (defaults to emrekuruu/job-search-assistant on ZeroGPU)
-uv run python scripts/deploy_space.py
-
-# Useful overrides
-uv run python scripts/deploy_space.py --owner <your-user> --name my-fork
-uv run python scripts/deploy_space.py --private
+uv run gen-queries                              # teacher writes search queries (DeepSeek V4 Pro)
+uv run fetch-jobs                                # scrape LinkedIn via JobSpy
+uv run gen-evals                                 # teacher scores (resume, job) fit
+uv run to-sft                                    # → data/sft/{train,val,test}.jsonl
+modal run modal_apps/train.py --task query_gen   # LoRA SFT on A100
+modal run modal_apps/train.py --task fit_eval --epochs 1
+modal run modal_apps/convert_to_gguf.py          # publish GGUFs to the model Hub
+uv run python scripts/deploy_space.py            # push the Space
 ```
 
-What the script does:
-1. `uv export --group space --no-dev` → writes a fresh `requirements.txt` (the workspace project is
-   appended as `-e .` so HF's pip install resolves the `src/` layout).
-2. Creates the Space (idempotent — re-runs are fine).
-3. Uploads only whitelisted files (`app.py`, `README.md`, `pyproject.toml`, `requirements.txt`,
-   `.python-version`, `src/**/*.py`). `data/`, `.env`, `modal_apps/`, caches, etc. stay local.
+## Acknowledgments
 
-The Space boots by `hf_hub_download`-ing the three GGUF files from `emrekuruu/job-searcher-qwen3-8B-gguf`,
-so make sure `modal run modal_apps/convert_to_gguf.py` has published them before deploying.
+- **Teacher labels**: [DeepSeek V4 Pro](https://platform.deepseek.com/) via PydanticAI.
+- **Resumes**: built on [Divyaamith/Kaggle-Resume](https://huggingface.co/datasets/Divyaamith/Kaggle-Resume) (originally livecareer.com).
+- **Jobs**: scraped via [JobSpy](https://github.com/Bunsly/JobSpy).
+- **Inference runtime**: [llama.cpp](https://github.com/ggml-org/llama.cpp) + [llama-cpp-python](https://github.com/abetlen/llama-cpp-python).
+- **UI + hosting**: [Gradio](https://www.gradio.app) and [HuggingFace ZeroGPU](https://huggingface.co/docs/hub/spaces-zerogpu) for the [Build Small Hackathon](https://huggingface.co/build-small-hackathon).
+
+## License
+
+Apache-2.0. Teacher labels are subject to
+[DeepSeek's Open Platform Terms](https://cdn.deepseek.com/policies/en-US/deepseek-open-platform-terms-of-service.html);
+the `jobs` corpus is redistributed public LinkedIn data — downstream users own their compliance.
