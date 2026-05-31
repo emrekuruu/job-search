@@ -32,5 +32,6 @@ async def build_query_dataset() -> int:
         item_key=lambda r: r.id,
         record_key=lambda rec: rec["id"],
         concurrency=settings.teacher_concurrency,
+        request_pacing=settings.teacher_request_pacing,
         desc="Generating queries",
     )

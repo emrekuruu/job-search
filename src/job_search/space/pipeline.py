@@ -4,9 +4,9 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
-from job_search.agents import evaluate_fit, generate_queries
 from job_search.data.jobs import fetch_jobs_for_query
 from job_search.schemas import JobListing
+from job_search.space.inference import evaluate_fit, generate_queries
 
 # UI labels -> JobSpy-compatible values. "Any" is treated as no preference.
 JOB_TYPE_MAP: dict[str, str] = {

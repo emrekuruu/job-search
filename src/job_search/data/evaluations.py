@@ -41,5 +41,6 @@ async def build_eval_dataset() -> int:
         item_key=lambda e: (e["resume_id"], e["job"]["job_url"]),
         record_key=lambda rec: (rec["resume_id"], rec["job"]["job_url"]),
         concurrency=settings.teacher_concurrency,
+        request_pacing=settings.teacher_request_pacing,
         desc="Evaluating fit",
     )

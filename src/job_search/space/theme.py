@@ -95,13 +95,43 @@ CSS = """
     border: 1px solid color-mix(in srgb, var(--primary-300) 35%, transparent) !important;
     border-radius: var(--radius-lg) !important;
     box-shadow: 0 4px 24px rgba(99,102,241,0.06);
-    padding: 4px !important;
+    padding: 16px 20px !important;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
-.glass-panel h3 {
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: -0.005em;
-    margin: 4px 0 12px 0;
+.panel-heading h3 {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 4px 0;
+    background: linear-gradient(120deg, var(--primary-500), var(--secondary-500));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    display: inline-block;
+}
+
+/* ============================================================
+   3b. .inputs-section / .submit-row — outer layout polish
+   ============================================================ */
+.inputs-section {
+    animation: fadein 280ms ease-out both;
+}
+.submit-row {
+    justify-content: center !important;
+    margin-top: 8px;
+}
+.submit-cta {
+    min-width: 240px;
+    padding: 12px 32px !important;
+    font-size: 15px !important;
+}
+.submit-cta::after {
+    content: " →";
+    font-weight: 500;
+    opacity: 0.9;
 }
 
 /* ============================================================
@@ -438,21 +468,114 @@ button.primary:active {
     box-shadow: 0 2px 8px rgba(99,102,241,0.30);
 }
 
-/* Upload zone — make the resume drop area feel intentional */
+/* Upload zone — make the resume drop area feel like a hero element */
 .upload-zone {
     border-radius: var(--radius-lg) !important;
+    height: 100%;
 }
 .upload-zone .upload-container,
 .upload-zone [data-testid="file"] {
-    border: 2px dashed color-mix(in srgb, var(--primary-500) 32%, transparent) !important;
+    border: 2px dashed color-mix(in srgb, var(--primary-500) 35%, transparent) !important;
     border-radius: var(--radius-lg) !important;
-    background: color-mix(in srgb, var(--primary-500) 4%, transparent) !important;
-    transition: all 200ms ease-out !important;
+    background:
+        radial-gradient(ellipse 60% 50% at 50% 40%, color-mix(in srgb, var(--primary-500) 8%, transparent) 0%, transparent 70%),
+        color-mix(in srgb, var(--block-background-fill) 70%, transparent) !important;
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    transition: all 220ms ease-out !important;
+    min-height: 280px !important;
 }
 .upload-zone:hover .upload-container,
 .upload-zone:hover [data-testid="file"] {
     border-color: var(--primary-500) !important;
-    background: color-mix(in srgb, var(--primary-500) 8%, transparent) !important;
+    background:
+        radial-gradient(ellipse 60% 50% at 50% 40%, color-mix(in srgb, var(--primary-500) 14%, transparent) 0%, transparent 70%),
+        color-mix(in srgb, var(--block-background-fill) 80%, transparent) !important;
+    transform: translateY(-1px);
+}
+.upload-zone svg {
+    color: var(--primary-500) !important;
+}
+
+/* ============================================================
+   8c. .main-tabs — pill-style tab nav, gradient active state
+   ============================================================ */
+.main-tabs .tab-nav {
+    gap: 4px !important;
+    border-bottom: 1px solid var(--border-color-primary) !important;
+    margin-bottom: 16px;
+}
+.main-tabs .tab-nav button {
+    background: transparent !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    color: var(--body-text-color-subdued) !important;
+    font-weight: 500 !important;
+    font-size: 14px !important;
+    letter-spacing: -0.005em !important;
+    padding: 10px 18px !important;
+    transition: all 200ms ease-out !important;
+    position: relative;
+}
+.main-tabs .tab-nav button:hover {
+    color: var(--body-text-color) !important;
+}
+.main-tabs .tab-nav button.selected {
+    color: var(--primary-600) !important;
+    font-weight: 600 !important;
+}
+.main-tabs .tab-nav button.selected::after {
+    content: "";
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    bottom: -1px;
+    height: 2px;
+    background: linear-gradient(90deg, var(--primary-500), var(--secondary-500));
+    border-radius: 2px;
+}
+
+/* ============================================================
+   8d. Reasoning accordion — quote-card with left accent
+   ============================================================ */
+.reasoning-accordion {
+    border: 1px solid var(--border-color-primary) !important;
+    border-radius: var(--radius-lg) !important;
+    background: color-mix(in srgb, var(--block-background-fill) 85%, transparent) !important;
+    margin-top: 14px !important;
+}
+.reasoning-accordion > .label-wrap,
+.reasoning-accordion > button {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.005em !important;
+    color: var(--body-text-color) !important;
+    padding: 12px 16px !important;
+}
+.reasoning-accordion > .label-wrap::before,
+.reasoning-accordion > button::before {
+    content: "💭 ";
+    margin-right: 4px;
+    opacity: 0.7;
+}
+.reasoning-content {
+    background: color-mix(in srgb, var(--primary-500) 5%, transparent) !important;
+    border-left: 3px solid color-mix(in srgb, var(--primary-500) 55%, transparent);
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    padding: 16px 20px !important;
+    margin: 8px 12px 12px 12px !important;
+    font-size: 13px !important;
+    line-height: 1.75 !important;
+    color: var(--body-text-color);
+    font-family: var(--font-mono) !important;
+}
+.reasoning-content p {
+    margin: 0 0 12px 0 !important;
+}
+.reasoning-content p:last-child { margin-bottom: 0 !important; }
+.reasoning-content strong {
+    color: var(--primary-600);
+    font-weight: 600;
 }
 
 /* ============================================================

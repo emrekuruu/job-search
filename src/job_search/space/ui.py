@@ -64,27 +64,30 @@ def build_app() -> gr.Blocks:
     with gr.Blocks(theme=theme, css=CSS, title="Job Search Assistant") as demo:
         # ---- Hero
         with gr.Column(elem_id="hero"):
-            gr.Markdown("# Job Search Assistant")
+            gr.Markdown("# Job matches that explain themselves")
             gr.Markdown(
-                "Upload your resume — DeepSeek V4 Pro generates targeted LinkedIn queries, "
-                "we surface matching jobs, then score each one on five dimensions with reasoning."
+                "Drop your resume, tell us what you're after — we surface LinkedIn jobs that "
+                "actually fit, rank them, and explain every score. Usually in under a minute."
             )
 
         # ---- Inputs section (hidden once streaming starts; brought back via Start over)
-        with gr.Column(visible=True) as inputs_section:
-            with gr.Row():
+        with gr.Column(visible=True, elem_classes=["inputs-section"]) as inputs_section:
+            with gr.Row(equal_height=True):
                 with gr.Column(scale=1):
                     pdf_input = gr.File(
                         file_types=[".pdf"],
-                        label="📄 Resume PDF",
+                        label="Resume PDF",
                         type="filepath",
-                        height=240,
+                        height=320,
                         elem_classes=["upload-zone"],
                     )
 
                 with gr.Column(scale=2):
                     with gr.Group(elem_classes=["glass-panel"]):
-                        gr.Markdown("### 🎯 What kind of job are you looking for?")
+                        gr.Markdown(
+                            "### What kind of role are you after?",
+                            elem_classes=["panel-heading"],
+                        )
                         with gr.Row():
                             job_type_input = gr.Radio(
                                 choices=JOB_TYPE_CHOICES,
@@ -100,18 +103,24 @@ def build_app() -> gr.Blocks:
                             )
                         location_input = gr.Textbox(
                             label="Location",
-                            placeholder="e.g. 'San Francisco, CA' or 'EU' (leave blank for anywhere)",
+                            placeholder="San Francisco · London · Remote · leave blank for anywhere",
                         )
                         extra_input = gr.Textbox(
-                            label="Anything else? (optional)",
+                            label="Anything else?",
                             lines=4,
                             placeholder=(
-                                "e.g. 'minimum $150k base; open to startups; happy to relocate "
-                                "for the right team'"
+                                "e.g. 'minimum $150k base; open to startups; happy to "
+                                "relocate for the right team'"
                             ),
                         )
 
-            submit_btn = gr.Button("🚀 Find My Jobs", variant="primary", size="lg")
+            with gr.Row(elem_classes=["submit-row"]):
+                submit_btn = gr.Button(
+                    "Find my matches",
+                    variant="primary",
+                    size="lg",
+                    elem_classes=["submit-cta"],
+                )
 
         # ---- Start-over (only visible after submission)
         with gr.Row(elem_classes=["start-over-row"]):
@@ -123,16 +132,24 @@ def build_app() -> gr.Blocks:
                 scale=0,
             )
 
-        # ---- Progress + results
-        progress_html = gr.HTML(_stepper())
+        # ---- Results section (hidden until submission; revealed once streaming starts)
+        with gr.Column(visible=False, elem_classes=["results-section"]) as results_section:
+            progress_html = gr.HTML(_stepper())
 
-        with gr.Tabs():
-            with gr.Tab("🔍 Search Queries"):
-                queries_html = gr.HTML(EMPTY_QUERIES_HTML)
-                with gr.Accordion("Model reasoning", open=False):
-                    queries_reasoning_md = gr.Markdown("")
-            with gr.Tab("🎯 Ranked Matches"):
-                ranked_html = gr.HTML(EMPTY_RANKED_HTML)
+            with gr.Tabs(elem_classes=["main-tabs"]):
+                with gr.Tab("Search queries"):
+                    queries_html = gr.HTML(EMPTY_QUERIES_HTML)
+                    with gr.Accordion(
+                        "Why these queries — model reasoning",
+                        open=False,
+                        elem_classes=["reasoning-accordion"],
+                    ):
+                        queries_reasoning_md = gr.Markdown(
+                            "",
+                            elem_classes=["reasoning-content"],
+                        )
+                with gr.Tab("Ranked matches"):
+                    ranked_html = gr.HTML(EMPTY_RANKED_HTML)
 
         # ---- Submit handler
         async def on_submit(
@@ -149,10 +166,11 @@ def build_app() -> gr.Blocks:
             except ValueError as e:
                 raise gr.Error(str(e)) from e
 
-            # Resume parsed → hide inputs, reveal Start-over, kick off queries.
+            # Resume parsed → hide inputs, reveal Start-over + results section, kick off queries.
             yield (
                 gr.update(visible=False),   # inputs_section
                 gr.update(visible=True),    # start_over_btn
+                gr.update(visible=True),    # results_section
                 _stepper(resume=_DONE, queries=_BUSY),
                 "",
                 "",
@@ -179,6 +197,7 @@ def build_app() -> gr.Blocks:
                     yield (
                         gr.update(),
                         gr.update(),
+                        gr.update(),
                         _stepper(resume=_DONE, queries=_DONE, search=_BUSY),
                         queries_html_str,
                         event["reasoning"],
@@ -188,6 +207,7 @@ def build_app() -> gr.Blocks:
                 elif kind == "jobs_after_query":
                     total_jobs = event["total"]
                     yield (
+                        gr.update(),
                         gr.update(),
                         gr.update(),
                         _stepper(
@@ -213,6 +233,7 @@ def build_app() -> gr.Blocks:
                     yield (
                         gr.update(),
                         gr.update(),
+                        gr.update(),
                         _stepper(
                             resume=_DONE, queries=_DONE, search=_DONE, evaluate=_BUSY,
                             search_count=total_jobs,
@@ -228,6 +249,7 @@ def build_app() -> gr.Blocks:
                     yield (
                         gr.update(),
                         gr.update(),
+                        gr.update(),
                         _stepper(
                             resume=_DONE, queries=_DONE, search=_DONE, evaluate=_DONE,
                             search_count=total_jobs,
@@ -238,11 +260,12 @@ def build_app() -> gr.Blocks:
                         gr.update(),
                     )
 
-        # ---- Start-over handler: bring inputs back + clear results.
+        # ---- Start-over handler: bring inputs back + hide+clear results.
         def on_start_over():
             return (
                 gr.update(visible=True),     # inputs_section
                 gr.update(visible=False),    # start_over_btn
+                gr.update(visible=False),    # results_section
                 _stepper(),                  # progress reset
                 EMPTY_QUERIES_HTML,
                 "",
@@ -253,6 +276,7 @@ def build_app() -> gr.Blocks:
         outputs = [
             inputs_section,
             start_over_btn,
+            results_section,
             progress_html,
             queries_html,
             queries_reasoning_md,

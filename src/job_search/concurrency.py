@@ -22,6 +22,7 @@ async def map_to_jsonl(
     record_key: Callable[[Record], Hashable],
     concurrency: int,
     desc: str,
+    request_pacing: float = 0.0,
 ) -> int:
     """Run `work` over `items` concurrently, appending each result to `out_path` as it lands.
 
@@ -30,6 +31,11 @@ async def map_to_jsonl(
       it completes, so partial progress survives interruption.
     - Resumable: items whose `item_key` already appears in `out_path` are skipped, so a
       re-run continues where a rate-limited / interrupted run left off.
+    - Per-item failure-tolerant: exceptions from `work(item)` are logged and that item is
+      skipped — other workers keep going. Failed items remain "pending" on the next run.
+    - `request_pacing > 0` holds each semaphore slot for that many extra seconds after the
+      call completes, smoothing the steady-state request rate so the API isn't slammed.
+
     Returns the number of new records written this run.
     """
     items = list(items)
@@ -42,21 +48,32 @@ async def map_to_jsonl(
     sem = asyncio.Semaphore(concurrency)
     write_lock = asyncio.Lock()
     written = 0
+    failed = 0
 
     with out_path.open("a", encoding="utf-8") as f, tqdm(
         total=len(pending), desc=desc, unit="item"
     ) as pbar:
 
         async def worker(item: T) -> None:
-            nonlocal written
+            nonlocal written, failed
+            record: Record | None = None
             async with sem:
-                record = await work(item)
+                try:
+                    record = await work(item)
+                except Exception as e:
+                    failed += 1
+                    tqdm.write(
+                        f"[skip] {item_key(item)}: {type(e).__name__}: {e}"
+                    )
+                if request_pacing > 0:
+                    await asyncio.sleep(request_pacing)
             if record is not None:
                 async with write_lock:
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
                     f.flush()
                     written += 1
             pbar.update(1)
+            pbar.set_postfix(written=written, failed=failed)
 
         await asyncio.gather(*(worker(it) for it in pending))
 

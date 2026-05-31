@@ -26,15 +26,15 @@ hf_cache_vol = modal.Volume.from_name("job-search-hf-cache", create_if_missing=T
 @app.function(
     image=image,
     gpu="A100-40GB",
-    timeout=6 * 60 * 60,
+    timeout=10 * 60 * 60,
     volumes={"/adapters": adapters_vol, "/root/.cache/huggingface": hf_cache_vol},
     secrets=[modal.Secret.from_name("huggingface")],
 )
-def train(task: str) -> None:
+def train(task: str, epochs: int = 3) -> None:
     import torch
     from datasets import load_dataset
     from peft import LoraConfig
-    from transformers import AutoModelForCausalLM, AutoTokenizer, EarlyStoppingCallback
+    from transformers import AutoModelForCausalLM, AutoTokenizer
     from trl import SFTConfig, SFTTrainer
 
     if task not in TASKS:
@@ -100,7 +100,7 @@ def train(task: str) -> None:
     out_dir = f"/adapters/{task}"
     sft_config = SFTConfig(
         output_dir=out_dir,
-        num_train_epochs=3,
+        num_train_epochs=epochs,
         per_device_train_batch_size=1,
         per_device_eval_batch_size=1,
         gradient_accumulation_steps=8,
@@ -118,14 +118,9 @@ def train(task: str) -> None:
         assistant_only_loss=True,
         logging_steps=5,
         eval_strategy="epoch",
-        save_strategy="epoch",
+        save_strategy="steps",
+        save_steps=200,
         save_total_limit=2,
-        load_best_model_at_end=True,
-        # With a dict `eval_dataset` the metric name is prefixed by the key
-        # (eval_val_loss, eval_test_loss). We only ever use VAL for selection
-        # and early stopping — test is observational.
-        metric_for_best_model="eval_val_loss",
-        greater_is_better=False,
         seed=SEED,
         data_seed=SEED,
         report_to="none",
@@ -143,7 +138,6 @@ def train(task: str) -> None:
         eval_dataset={"val": val_ds, "test": test_ds},
         peft_config=peft_config,
         processing_class=tokenizer,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=2)],
     )
 
     # Tokenized test set for explicit pre/post-training evals.
@@ -175,7 +169,7 @@ def train(task: str) -> None:
             f"({delta:+.4f}, {pct:+.1f}%) ==="
         )
 
-    # 9) Save LoRA adapter + tokenizer to the shared Volume; serve.py mounts the same Volume.
+    # 9) Save LoRA adapter + tokenizer to the shared Volume; convert_to_gguf.py reads from it.
     trainer.save_model(out_dir)
     tokenizer.save_pretrained(out_dir)
     adapters_vol.commit()
@@ -183,5 +177,5 @@ def train(task: str) -> None:
 
 
 @app.local_entrypoint()
-def main(task: str = "query_gen") -> None:
-    train.remote(task)
+def main(task: str = "query_gen", epochs: int = 3) -> None:
+    train.remote(task, epochs)
