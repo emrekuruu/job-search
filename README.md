@@ -3,10 +3,15 @@
 Drop a resume, get ranked LinkedIn jobs **with reasoning** — end-to-end on HuggingFace.
 
 [![Build Small Hackathon](https://img.shields.io/badge/Built%20for-Build%20Small%20Hackathon-ff6b6b)](https://huggingface.co/build-small-hackathon)
+
 [![Live Space](https://img.shields.io/badge/🤗%20Space-job--search--assistant-blue)](https://huggingface.co/spaces/emrekuruu/job-search-assistant)
+
 [![Model](https://img.shields.io/badge/🤗%20Model-Qwen3--8B%20LoRA-orange)](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B)
+
 [![Dataset](https://img.shields.io/badge/🤗%20Dataset-job--search--distill-blue)](https://huggingface.co/datasets/emrekuruu/job-search-distill)
+
 [![Built with Gradio](https://img.shields.io/badge/Built%20with-Gradio-orange?logo=gradio)](https://www.gradio.app)
+
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 A Qwen3-8B student distilled from **DeepSeek V4 Pro** to do two things from a single resume:
