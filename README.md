@@ -21,7 +21,7 @@ HuggingFace ZeroGPU Space — no external API calls at inference time.
 
 ## Live demo
 
-<gradio-app src="https://emrekuruu-job-search-assistant.hf.space"></gradio-app>
+<gradio-app src="https://huggingface.co/spaces/emrekuruu/job-search-assistant"></gradio-app>
 
 ## Pipeline
 
