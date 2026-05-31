@@ -23,8 +23,6 @@ external API calls at inference time.
 
 <gradio-app src="https://emrekuruu-job-search-assistant.hf.space"></gradio-app>
 
-→ Or open directly: **[emrekuruu/job-search-assistant](https://huggingface.co/spaces/emrekuruu/job-search-assistant)**
-
 ## Pipeline
 
 ```
