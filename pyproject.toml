@@ -73,14 +73,15 @@ train = [
     "datasets>=3.10",
 ]
 
-# Gradio demo Space — ONLY installed when running the Space, never elsewhere.
-# `gradio` + `pymupdf` must not leak into the Modal train image (web assets bloat) or
-# vice-versa (`torch`/`trl` must never end up on the Space build). `llama-cpp-python` +
-# `spaces` are the ZeroGPU / Llama Champion inference stack; HF Spaces' build pipeline
-# substitutes a CUDA-enabled llama-cpp-python wheel automatically on a ZeroGPU image.
+# Gradio demo Space — the canonical ZeroGPU + transformers + PEFT inference stack.
+# `gradio` / `pymupdf` / the inference deps must not leak into the Modal train image,
+# and `trl` must not end up on the Space build.
 space = [
     "gradio>=5",                # 5.x (May 2026): Blocks streaming + theming + queue
     "pymupdf>=1.24",            # PDF text extraction (PyMuPDF / fitz)
-    "llama-cpp-python>=0.3",    # runs the GGUF Qwen3-8B + LoRA adapters in-process
-    "spaces>=0.30",              # @spaces.GPU decorator for ZeroGPU allocation
+    "spaces>=0.30",             # @spaces.GPU decorator for ZeroGPU allocation
+    "torch>=2.6",               # CUDA runtime libs ship with the wheel; ZeroGPU-friendly
+    "transformers>=4.51",       # Qwen3 architecture support
+    "peft>=0.16",               # PeftModel.load_adapter + set_adapter
+    "accelerate>=1.10",         # device_map="cuda" plumbing
 ]

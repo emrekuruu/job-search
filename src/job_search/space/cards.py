@@ -53,6 +53,31 @@ def render_job_card(job: JobListing, evaluation: FitEvaluation) -> str:
     """
 
 
+def render_streaming_eval_card(job: JobListing, partial_reasoning: str) -> str:
+    """Skeleton card shown while the model is still reasoning about this (resume, job)
+    pair. Replaced atomically by `render_job_card` on the final `evaluation` event."""
+    title = html.escape(job.title)
+    company = html.escape(job.company or "Unknown company")
+    location = html.escape(job.location or "Location not listed")
+    url = html.escape(job.job_url)
+    reasoning = html.escape(partial_reasoning) if partial_reasoning else "Thinking…"
+
+    return f"""
+    <div class="job-card score-streaming">
+        <div class="card-accent"></div>
+        <span class="score-badge score-streaming">
+            <span class="streaming-dots">…</span>
+        </span>
+        <h3>{title}</h3>
+        <div class="meta">
+            <strong>{company}</strong> &middot; {location} &middot;
+            <a href="{url}" target="_blank" rel="noopener">View on LinkedIn ↗</a>
+        </div>
+        <div class="streaming-reasoning">{reasoning}</div>
+    </div>
+    """
+
+
 def render_query_chip(search_term: str) -> str:
     return f'<span class="query-chip">{html.escape(search_term)}</span>'
 

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import gradio as gr
 
-from job_search.space.cards import render_job_card, render_query_card
+from job_search.space.cards import (
+    render_job_card,
+    render_query_card,
+    render_streaming_eval_card,
+)
 from job_search.space.ocr import extract_resume_text
 from job_search.space.pipeline import stream_pipeline
 from job_search.space.theme import CSS, theme
@@ -152,7 +156,7 @@ def build_app() -> gr.Blocks:
                     ranked_html = gr.HTML(EMPTY_RANKED_HTML)
 
         # ---- Submit handler
-        async def on_submit(
+        def on_submit(
             pdf_path: str | None,
             job_type: str,
             modality: str,
@@ -181,7 +185,7 @@ def build_app() -> gr.Blocks:
             total_jobs = 0
             total_evals = 0
 
-            async for event in stream_pipeline(
+            for event in stream_pipeline(
                 resume_text,
                 extra,
                 job_type=job_type,
@@ -190,7 +194,48 @@ def build_app() -> gr.Blocks:
             ):
                 kind = event["kind"]
 
-                if kind == "queries":
+                if kind == "query_token":
+                    # Live reasoning streaming into the accordion under the queries tab.
+                    yield (
+                        gr.update(),
+                        gr.update(),
+                        gr.update(),
+                        _stepper(resume=_DONE, queries=_BUSY),
+                        gr.update(),
+                        event["reasoning"],
+                        gr.update(),
+                    )
+
+                elif kind == "eval_token":
+                    # Streaming reasoning for one (resume, job) pair. Placeholder card
+                    # at a high pseudo-score so the in-progress card pins to the top of
+                    # the ranked list; the final `evaluation` event overwrites it with
+                    # the real card + real total, and it re-sorts naturally.
+                    job = event["job"]
+                    cards_by_url[job.job_url] = (
+                        200,
+                        render_streaming_eval_card(job, event["reasoning"]),
+                    )
+                    sorted_cards = "".join(
+                        h for _, h in sorted(
+                            cards_by_url.values(), key=lambda kv: kv[0], reverse=True
+                        )
+                    )
+                    yield (
+                        gr.update(),
+                        gr.update(),
+                        gr.update(),
+                        _stepper(
+                            resume=_DONE, queries=_DONE, search=_DONE, evaluate=_BUSY,
+                            search_count=total_jobs,
+                            eval_count=(total_evals, total_jobs),
+                        ),
+                        gr.update(),
+                        gr.update(),
+                        sorted_cards,
+                    )
+
+                elif kind == "queries":
                     queries_html_str = "".join(
                         render_query_card(q) for q in event["queries"]
                     )

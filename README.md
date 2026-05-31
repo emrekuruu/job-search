@@ -11,8 +11,8 @@ Drop a resume, get ranked LinkedIn jobs **with reasoning** — end-to-end on Hug
 
 A Qwen3-8B student distilled from **DeepSeek V4 Pro** to do two things from a single resume:
 draft LinkedIn job-search queries, and score each returned job's fit on a 5-dimension rubric
-with written reasoning. The student runs **in-process via llama.cpp** on a ZeroGPU Space — no
-external API calls at inference time.
+with written reasoning. The student runs **in-process via transformers + PEFT** on a
+HuggingFace ZeroGPU Space — no external API calls at inference time.
 
 ## Live demo
 
@@ -28,9 +28,7 @@ resumes ─▶ query_agent ─▶ queries ─▶ JobSpy ─▶ jobs ─▶ eval_
                                                        │
                               SFT splits ─▶ Modal LoRA training ─▶ adapters
                                                        │
-                                       Modal convert-to-gguf ─▶ HF model repo
-                                                       │
-                                       HF ZeroGPU Space (llama.cpp) ──▶ you
+                                       HF ZeroGPU Space (transformers + PEFT) ──▶ you
 ```
 
 ## Resources
@@ -39,8 +37,8 @@ resumes ─▶ query_agent ─▶ queries ─▶ JobSpy ─▶ jobs ─▶ eval_
 |---|---|
 | **Live Space** | [emrekuruu/job-search-assistant](https://huggingface.co/spaces/emrekuruu/job-search-assistant) |
 | **Dataset** | [emrekuruu/job-search-distill](https://huggingface.co/datasets/emrekuruu/job-search-distill) — four configs: `resume_corpus`, `query_gen_pairings`, `jobs`, `job_evals` |
-| **Model (safetensors)** | [emrekuruu/job-searcher-qwen3-8B](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B) — two LoRA adapters on Qwen3-8B |
-| **Model (GGUF)** | [emrekuruu/job-searcher-qwen3-8B-gguf](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B-gguf) — base Q4_K_M + LoRA-GGUF adapters for llama.cpp |
+| **Model (safetensors)** | [emrekuruu/job-searcher-qwen3-8B](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B) — two LoRA adapters on Qwen3-8B (what the live Space loads) |
+| **Model (GGUF)** | [emrekuruu/job-searcher-qwen3-8B-gguf](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B-gguf) — base Q4_K_M + LoRA-GGUF adapters, for offline llama.cpp use |
 | **Source code** | [github.com/emrekuruu/job-search](https://github.com/emrekuruu/job-search) |
 
 ## Dataset
@@ -63,9 +61,9 @@ A bf16 LoRA fine-tune of [Qwen/Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B). 
 - **`fit_eval`** — `(resume, job)` → 5 × 20-pt dimension scores + overall reasoning.
 
 Both are published in [safetensors form](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B)
-(for `transformers` + `peft`) and as
-[GGUF](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B-gguf) alongside a Q4_K_M
-quantization of the base model (for `llama-cpp-python`).
+— what the live Space loads via `transformers` + `peft` on ZeroGPU. A
+[GGUF mirror](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B-gguf) with a Q4_K_M base
+quantization is also available for offline use with `llama-cpp-python`.
 
 ## Run locally
 
@@ -74,8 +72,8 @@ uv sync --group space
 uv run python app.py    # opens http://localhost:7860
 ```
 
-The Space's `app.py` downloads the GGUF weights from the Hub on first launch (~5 GB), then
-runs Qwen3-8B + both LoRA adapters in-process via llama.cpp.
+The Space's `app.py` downloads Qwen3-8B + both LoRA adapters from the Hub on first launch
+(~16 GB) and runs them in-process via `transformers` + `peft` on the ZeroGPU allocation.
 
 ## Reproducing the model
 
@@ -88,8 +86,7 @@ uv run gen-evals                                 # teacher scores (resume, job) 
 uv run to-sft                                    # → data/sft/{train,val,test}.jsonl
 modal run modal_apps/train.py --task query_gen   # LoRA SFT on A100
 modal run modal_apps/train.py --task fit_eval --epochs 1
-modal run modal_apps/convert_to_gguf.py          # publish GGUFs to the model Hub
-uv run python scripts/deploy_space.py            # push the Space
+uv run python scripts/deploy_space.py            # push the Space (loads safetensors LoRAs)
 ```
 
 ## Acknowledgments
@@ -97,7 +94,7 @@ uv run python scripts/deploy_space.py            # push the Space
 - **Teacher labels**: [DeepSeek V4 Pro](https://platform.deepseek.com/) via PydanticAI.
 - **Resumes**: built on [Divyaamith/Kaggle-Resume](https://huggingface.co/datasets/Divyaamith/Kaggle-Resume) (originally livecareer.com).
 - **Jobs**: scraped via [JobSpy](https://github.com/Bunsly/JobSpy).
-- **Inference runtime**: [llama.cpp](https://github.com/ggml-org/llama.cpp) + [llama-cpp-python](https://github.com/abetlen/llama-cpp-python).
+- **Inference**: [transformers](https://huggingface.co/docs/transformers) + [PEFT](https://huggingface.co/docs/peft).
 - **UI + hosting**: [Gradio](https://www.gradio.app) and [HuggingFace ZeroGPU](https://huggingface.co/docs/hub/spaces-zerogpu) for the [Build Small Hackathon](https://huggingface.co/build-small-hackathon).
 
 ## License

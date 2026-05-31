@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import asyncio
-from collections.abc import AsyncIterator
+import time
+from collections.abc import Iterator
 from typing import Any
 
 from job_search.data.jobs import fetch_jobs_for_query
@@ -60,7 +60,7 @@ def _build_input(
     return f"{resume_text}\n\nExplicit preferences from candidate (use these in every query):\n" + "\n".join(lines)
 
 
-async def stream_pipeline(
+def stream_pipeline(
     resume_text: str,
     extra: str | None,
     *,
@@ -69,14 +69,15 @@ async def stream_pipeline(
     location: str | None = None,
     n_queries: int = 3,
     results_per_query: int = 3,
-    eval_concurrency: int = 4,
     inter_query_sleep: float = 1.0,
-) -> AsyncIterator[dict[str, Any]]:
+) -> Iterator[dict[str, Any]]:
     """Yield semantic pipeline events so the UI can stream updates.
 
     Event shapes:
-      {"kind": "queries", "queries": [JobQuery, ...], "reasoning": str}
+      {"kind": "query_token", "reasoning": str}                                # streaming
+      {"kind": "queries", "queries": [JobQuery, ...], "reasoning": str}        # final
       {"kind": "jobs_after_query", "query": JobQuery, "new_jobs": [JobListing], "total": int}
+      {"kind": "eval_token", "job": JobListing, "reasoning": str}              # streaming
       {"kind": "evaluation", "job": JobListing, "evaluation": FitEvaluation, "reasoning": str}
       {"kind": "done", "ranked": [(JobListing, FitEvaluation, str)]}
     """
@@ -86,8 +87,24 @@ async def stream_pipeline(
 
     full_input = _build_input(resume_text, extra, job_type, modality, location)
 
-    # 1) Query generation (single LLM call).
-    queryset, q_reasoning = await generate_queries(full_input, category="general")
+    # 1) Query generation — streaming. The student emits <think>...reasoning...</think>
+    #    {json}, so the cumulative `text` during streaming is mostly the reasoning block
+    #    until `</think>` appears. We surface the reasoning portion to the UI live.
+    queryset = None
+    q_reasoning = ""
+    for ev in generate_queries(full_input, category="general"):
+        if ev["kind"] == "token":
+            # Best-effort live reasoning: everything between the opening <think> tag and
+            # the (possibly still-absent) closing </think>.
+            cumul = ev["text"]
+            partial_reasoning = _live_reasoning(cumul)
+            if partial_reasoning:
+                yield {"kind": "query_token", "reasoning": partial_reasoning}
+        elif ev["kind"] == "done":
+            queryset = ev["result"]
+            q_reasoning = ev["reasoning"]
+
+    assert queryset is not None, "query gen did not produce a 'done' event"
     queries = queryset.queries[:n_queries]
     yield {"kind": "queries", "queries": queries, "reasoning": q_reasoning}
 
@@ -95,7 +112,7 @@ async def stream_pipeline(
     seen_urls: set[str] = set()
     all_jobs: list[JobListing] = []
     for i, q in enumerate(queries):
-        listings = await asyncio.to_thread(fetch_jobs_for_query, q, results_per_query)
+        listings = fetch_jobs_for_query(q, results_per_query)
         new_for_q: list[JobListing] = []
         for j in listings:
             if j.job_url in seen_urls:
@@ -110,32 +127,51 @@ async def stream_pipeline(
             "total": len(all_jobs),
         }
         if i < len(queries) - 1 and inter_query_sleep:
-            await asyncio.sleep(inter_query_sleep)
+            time.sleep(inter_query_sleep)
 
     if not all_jobs:
         yield {"kind": "done", "ranked": []}
         return
 
-    # 3) Fit evaluation — parallel, capped via semaphore. Stream as each completes.
-    sem = asyncio.Semaphore(eval_concurrency)
-
-    async def _evaluate_one(job: JobListing):
-        async with sem:
-            ev, reasoning = await evaluate_fit(full_input, job)
-        return job, ev, reasoning
-
-    tasks = [asyncio.create_task(_evaluate_one(j)) for j in all_jobs]
+    # 3) Fit evaluation — sequential, streaming reasoning per job.
     results: list[tuple] = []
-    for fut in asyncio.as_completed(tasks):
-        job, ev, reasoning = await fut
-        results.append((job, ev, reasoning))
+    for job in all_jobs:
+        ev_obj = None
+        e_reasoning = ""
+        for ev in evaluate_fit(full_input, job):
+            if ev["kind"] == "token":
+                partial_reasoning = _live_reasoning(ev["text"])
+                if partial_reasoning:
+                    yield {"kind": "eval_token", "job": job, "reasoning": partial_reasoning}
+            elif ev["kind"] == "done":
+                ev_obj = ev["result"]
+                e_reasoning = ev["reasoning"]
+        assert ev_obj is not None, "fit eval did not produce a 'done' event"
+        results.append((job, ev_obj, e_reasoning))
         yield {
             "kind": "evaluation",
             "job": job,
-            "evaluation": ev,
-            "reasoning": reasoning,
+            "evaluation": ev_obj,
+            "reasoning": e_reasoning,
         }
 
     # 4) Final ranking.
     ranked = sorted(results, key=lambda r: r[1].total, reverse=True)
     yield {"kind": "done", "ranked": ranked}
+
+
+def _live_reasoning(cumul: str) -> str:
+    """Extract the in-progress reasoning text from a partial generation.
+
+    During streaming the model emits `<think>\n<reasoning so far>` and (eventually)
+    `</think>\n\n{json}`. We surface only the reasoning portion to the UI — once
+    `</think>` shows up we keep showing what was inside the block (the JSON tail is
+    presented as the final structured result instead).
+    """
+    s = cumul.lstrip()
+    if not s.startswith("<think>"):
+        return ""
+    s = s[len("<think>") :]
+    if "</think>" in s:
+        s = s.split("</think>", 1)[0]
+    return s.strip()

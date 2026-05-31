@@ -1,17 +1,38 @@
-"""Space-side inference using the distilled GGUF model via llama-cpp-python.
+"""Space-side inference using transformers + PEFT on ZeroGPU, with token-streaming.
 
-Replaces the DeepSeek API call path used by the data-curation pipeline. Loads two
-llama.cpp instances — one per LoRA adapter — at module import so each @spaces.GPU
-call just runs inference. The distilled student emits structured JSON directly
-(constrained by JSON-schema at decode time); there is no `<think>` reasoning trace.
+Critical constraints (learned the hard way):
+
+1. **`.to("cuda")` at module level fails.** ZeroGPU's CUDA emulation covers diffusers'
+   `Pipeline.to('cuda')` but NOT `AutoModelForCausalLM.to('cuda')` / `PeftModel.to('cuda')`.
+   Load on CPU at root, move to GPU inside the decorated function.
+
+2. **`@spaces.GPU` must be called from the request thread.** Anything that dispatches
+   the decorated call to another thread (e.g. `asyncio.to_thread`) breaks the GPU
+   context — the worker never gets a real GPU and `.to('cuda')` fails with "Found no
+   NVIDIA driver". So the public API exposed here is **sync**: pipeline.py / ui.py
+   call these generators directly on the Gradio request thread.
+
+Streaming:
+
+  - The `@spaces.GPU`-decorated generators below run `model.generate(...)` on a
+    background `Thread` and pipe its tokens through a `TextIteratorStreamer`.
+  - They yield typed events: `{"kind": "token", "text": cumulative}` while the model
+    is generating, then a single `{"kind": "done", "result": <Pydantic>, "reasoning":
+    <str>}` after the full output lands and the `<think>...</think>` block has been
+    split out and the JSON body parsed.
+  - Public functions `generate_queries` / `evaluate_fit` are thin pass-throughs
+    yielding the same event shape.
 """
 from __future__ import annotations
 
-import asyncio
+from collections.abc import Iterator
+from threading import Thread
+from typing import Any
 
 import spaces
-from huggingface_hub import hf_hub_download
-from llama_cpp import Llama
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
 from job_search.prompts import (
     build_eval_system_prompt,
@@ -21,84 +42,136 @@ from job_search.prompts import (
 )
 from job_search.schemas import FitEvaluation, JobListing, QuerySet
 
-REPO = "emrekuruu/job-searcher-qwen3-8B-gguf"
-N_CTX = 16384
-MAX_TOKENS = 4096
+BASE_MODEL = "Qwen/Qwen3-8B"
+ADAPTER_REPO = "emrekuruu/job-searcher-qwen3-8B"
+MAX_NEW_TOKENS = 4096
 
-# Module-level downloads (cached via hf_hub).
-_base_path = hf_hub_download(REPO, "Qwen3-8B-Q4_K_M.gguf")
-_query_lora = hf_hub_download(REPO, "query_gen.lora.gguf")
-_eval_lora = hf_hub_download(REPO, "fit_eval.lora.gguf")
-
-# Module-level model instantiation. ZeroGPU expects model placement at root level —
-# subsequent `@spaces.GPU` calls just invoke inference on these warm instances.
-# Two separate Llama instances (one per adapter) is simpler than swapping a single
-# instance between scales; the extra ~5 GB VRAM is well within ZeroGPU's 48 GB budget.
-_llm_query = Llama(
-    model_path=_base_path,
-    lora_path=_query_lora,
-    n_gpu_layers=-1,
-    n_ctx=N_CTX,
-    verbose=False,
+# Module-level: load tokenizer + base model + both adapters on CPU.
+# `.to("cuda")` is intentionally NOT called here.
+_tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
+_base = AutoModelForCausalLM.from_pretrained(
+    BASE_MODEL,
+    dtype=torch.bfloat16,
+    attn_implementation="sdpa",
+    low_cpu_mem_usage=True,
 )
-_llm_eval = Llama(
-    model_path=_base_path,
-    lora_path=_eval_lora,
-    n_gpu_layers=-1,
-    n_ctx=N_CTX,
-    verbose=False,
+_model = PeftModel.from_pretrained(
+    _base, ADAPTER_REPO, subfolder="query_gen", adapter_name="query_gen"
 )
+_model.load_adapter(ADAPTER_REPO, subfolder="fit_eval", adapter_name="fit_eval")
+_model.eval()
 
 
-@spaces.GPU(duration=60)
-def _run_query_gen(resume: str, category: str) -> QuerySet:
-    out = _llm_query.create_chat_completion(
-        messages=[
-            {"role": "system", "content": build_query_system_prompt()},
-            {"role": "user", "content": build_query_user(resume, category)},
+def _split_think(text: str) -> tuple[str, str]:
+    """Split the model's output into (reasoning, json_body).
+
+    The student was trained on assistant turns of shape
+    `<think>\n{reasoning}\n</think>\n\n{json}` (see `sft_format.py::_assistant`),
+    so it emits the same shape at inference. If no <think> block is present we
+    return ("", text.strip()).
+    """
+    text = text.strip()
+    if text.startswith("<think>") and "</think>" in text:
+        end = text.index("</think>")
+        reasoning = text[len("<think>") : end].strip()
+        body = text[end + len("</think>") :].strip()
+        return reasoning, body
+    return "", text
+
+
+def _stream_generate(
+    adapter: str, system: str, user: str, temperature: float,
+) -> Iterator[str]:
+    """Stream cumulative decoded text from the model. Yields the running join.
+
+    Caller is responsible for adapter selection's lifetime — but `set_adapter` is
+    cheap and idempotent, so we just call it here. `_model.to("cuda")` is also
+    safe to repeat (no-op after first call).
+    """
+    _model.to("cuda")
+    _model.set_adapter(adapter)
+    prompt = _tokenizer.apply_chat_template(
+        [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
         ],
-        response_format={
-            "type": "json_object",
-            "schema": QuerySet.model_json_schema(),
-        },
-        max_tokens=MAX_TOKENS,
-        temperature=0.7,
+        tokenize=False,
+        add_generation_prompt=True,
     )
-    return QuerySet.model_validate_json(out["choices"][0]["message"]["content"])
+    inputs = _tokenizer(prompt, return_tensors="pt").to(_model.device)
+    streamer = TextIteratorStreamer(
+        _tokenizer, skip_prompt=True, skip_special_tokens=True
+    )
+    gen_kwargs = dict(
+        **inputs,
+        streamer=streamer,
+        max_new_tokens=MAX_NEW_TOKENS,
+        do_sample=True,
+        temperature=temperature,
+        top_p=0.9,
+        pad_token_id=_tokenizer.eos_token_id,
+    )
+    thread = Thread(target=_model.generate, kwargs=gen_kwargs)
+    thread.start()
+
+    parts: list[str] = []
+    for chunk in streamer:
+        parts.append(chunk)
+        yield "".join(parts)
+    thread.join()
 
 
 @spaces.GPU(duration=120)
-def _run_fit_eval(resume: str, job: JobListing) -> FitEvaluation:
-    out = _llm_eval.create_chat_completion(
-        messages=[
-            {"role": "system", "content": build_eval_system_prompt()},
-            {"role": "user", "content": build_eval_user(resume, job)},
-        ],
-        response_format={
-            "type": "json_object",
-            "schema": FitEvaluation.model_json_schema(),
-        },
-        max_tokens=MAX_TOKENS,
+def _run_query_gen(resume: str, category: str) -> Iterator[dict[str, Any]]:
+    full: str = ""
+    for cumul in _stream_generate(
+        "query_gen",
+        build_query_system_prompt(),
+        build_query_user(resume, category),
+        temperature=0.7,
+    ):
+        full = cumul
+        yield {"kind": "token", "text": cumul}
+    reasoning, body = _split_think(full)
+    yield {
+        "kind": "done",
+        "result": QuerySet.model_validate_json(body),
+        "reasoning": reasoning,
+    }
+
+
+@spaces.GPU(duration=180)
+def _run_fit_eval(resume: str, job: JobListing) -> Iterator[dict[str, Any]]:
+    full: str = ""
+    for cumul in _stream_generate(
+        "fit_eval",
+        build_eval_system_prompt(),
+        build_eval_user(resume, job),
         temperature=0.4,
-    )
-    return FitEvaluation.model_validate_json(out["choices"][0]["message"]["content"])
+    ):
+        full = cumul
+        yield {"kind": "token", "text": cumul}
+    reasoning, body = _split_think(full)
+    yield {
+        "kind": "done",
+        "result": FitEvaluation.model_validate_json(body),
+        "reasoning": reasoning,
+    }
 
 
-# Public async API — same signatures as `job_search.agents.generate_queries` and
-# `evaluate_fit` so `pipeline.py` only needs an import swap. The unused `model` kwarg
-# preserves the call-site shape. Reasoning trace is empty (distilled student emits the
-# structured JSON only, no <think> block).
-async def generate_queries(
+# Public sync streaming API. The `model` kwarg is unused but kept to mirror the
+# data-pipeline's agents.py signatures. Each call returns a generator that yields
+# {"kind": "token", "text": cumulative} events during generation, then a single
+# {"kind": "done", "result": <Pydantic>, "reasoning": <str>} event at the end.
+def generate_queries(
     resume: str, category: str, *, model=None,
-) -> tuple[QuerySet, str]:
+) -> Iterator[dict[str, Any]]:
     del model
-    qs = await asyncio.to_thread(_run_query_gen, resume, category)
-    return qs, ""
+    yield from _run_query_gen(resume, category)
 
 
-async def evaluate_fit(
+def evaluate_fit(
     resume: str, job: JobListing, *, model=None,
-) -> tuple[FitEvaluation, str]:
+) -> Iterator[dict[str, Any]]:
     del model
-    ev = await asyncio.to_thread(_run_fit_eval, resume, job)
-    return ev, ""
+    yield from _run_fit_eval(resume, job)
