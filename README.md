@@ -19,10 +19,6 @@ draft LinkedIn job-search queries, and score each returned job's fit on a 5-dime
 with written reasoning. The student runs **in-process via transformers + PEFT** on a
 HuggingFace ZeroGPU Space — no external API calls at inference time.
 
-## Live demo
-
-<gradio-app src="https://huggingface.co/spaces/emrekuruu/job-search-assistant"></gradio-app>
-
 ## Pipeline
 
 ```
