@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import gradio as gr
 
-from job_search.space.cards import (
+from job_search.spaces.common.cards import (
     render_job_card,
     render_query_card,
     render_streaming_eval_card,
 )
-from job_search.space.ocr import extract_resume_text
-from job_search.space.pipeline import stream_pipeline
-from job_search.space.theme import CSS, theme
+from job_search.spaces.common.theme import CSS, theme
+from job_search.spaces.search.ocr import extract_resume_text
+from job_search.spaces.search.pipeline import stream_pipeline
 
 JOB_TYPE_CHOICES = ["Any", "Full-time", "Part-time", "Contract", "Internship"]
 MODALITY_CHOICES = ["Any", "Remote", "Hybrid", "On-premise"]
@@ -65,58 +65,79 @@ def _stepper(
 
 
 def build_app() -> gr.Blocks:
-    with gr.Blocks(theme=theme, css=CSS, title="Job Search Assistant") as demo:
+    with gr.Blocks(title="Job Searcher") as demo:
+        # ---- Decorative aurora background (sits behind everything, pointer-events: none)
+        gr.HTML(
+            '<div id="aurora-bg">'
+            '  <div class="aurora-blob aurora-1"></div>'
+            '  <div class="aurora-blob aurora-2"></div>'
+            '  <div class="aurora-blob aurora-3"></div>'
+            "</div>"
+        )
+
         # ---- Hero
         with gr.Column(elem_id="hero"):
-            gr.Markdown("# Job matches that explain themselves")
+            gr.Markdown("# Job Searcher")
             gr.Markdown(
-                "Drop your resume, tell us what you're after — we surface LinkedIn jobs that "
-                "actually fit, rank them, and explain every score. Usually in under a minute."
+                "Drop your resume. Get matches with the reasoning behind every score."
             )
 
         # ---- Inputs section (hidden once streaming starts; brought back via Start over)
         with gr.Column(visible=True, elem_classes=["inputs-section"]) as inputs_section:
             with gr.Row(equal_height=True):
-                with gr.Column(scale=1):
+                with gr.Column(scale=1, elem_classes=["upload-column"]):
+                    gr.HTML('<div class="section-label">Resume</div>')
                     pdf_input = gr.File(
                         file_types=[".pdf"],
-                        label="Resume PDF",
+                        show_label=False,
                         type="filepath",
-                        height=320,
+                        height=300,
                         elem_classes=["upload-zone"],
                     )
 
                 with gr.Column(scale=2):
                     with gr.Group(elem_classes=["glass-panel"]):
-                        gr.Markdown(
-                            "### What kind of role are you after?",
-                            elem_classes=["panel-heading"],
-                        )
-                        with gr.Row():
+                        with gr.Column(elem_classes=["preference-section"]):
+                            gr.HTML('<div class="section-label">Job type</div>')
                             job_type_input = gr.Radio(
                                 choices=JOB_TYPE_CHOICES,
                                 value="Any",
-                                label="Job type",
+                                show_label=False,
                                 elem_classes=["preference-radio"],
                             )
+
+                        gr.HTML('<div class="section-divider"></div>')
+
+                        with gr.Column(elem_classes=["preference-section"]):
+                            gr.HTML('<div class="section-label">Work modality</div>')
                             modality_input = gr.Radio(
                                 choices=MODALITY_CHOICES,
                                 value="Any",
-                                label="Work modality",
+                                show_label=False,
                                 elem_classes=["preference-radio"],
                             )
-                        location_input = gr.Textbox(
-                            label="Location",
-                            placeholder="San Francisco · London · Remote · leave blank for anywhere",
-                        )
-                        extra_input = gr.Textbox(
-                            label="Anything else?",
-                            lines=4,
-                            placeholder=(
-                                "e.g. 'minimum $150k base; open to startups; happy to "
-                                "relocate for the right team'"
-                            ),
-                        )
+
+                        gr.HTML('<div class="section-divider"></div>')
+
+                        with gr.Column(elem_classes=["preference-section"]):
+                            gr.HTML('<div class="section-label">Location</div>')
+                            location_input = gr.Textbox(
+                                show_label=False,
+                                placeholder="San Francisco · London · Remote · anywhere",
+                            )
+
+                        gr.HTML('<div class="section-divider"></div>')
+
+                        with gr.Column(elem_classes=["preference-section"]):
+                            gr.HTML('<div class="section-label">Anything else</div>')
+                            extra_input = gr.Textbox(
+                                show_label=False,
+                                lines=1,
+                                max_lines=4,  # grows as the user types, starts compact
+                                placeholder=(
+                                    "e.g. 'minimum $150k base · open to startups'"
+                                ),
+                            )
 
             with gr.Row(elem_classes=["submit-row"]):
                 submit_btn = gr.Button(
@@ -145,7 +166,7 @@ def build_app() -> gr.Blocks:
                     queries_html = gr.HTML(EMPTY_QUERIES_HTML)
                     with gr.Accordion(
                         "Why these queries — model reasoning",
-                        open=False,
+                        open=True,
                         elem_classes=["reasoning-accordion"],
                     ):
                         queries_reasoning_md = gr.Markdown(
@@ -340,5 +361,17 @@ def build_app() -> gr.Blocks:
             outputs=outputs,
         )
         start_over_btn.click(fn=on_start_over, inputs=None, outputs=outputs)
+
+    # Gradio 6.0 moved `theme` and `css` from the Blocks constructor to launch().
+    # HF Spaces calls demo.launch() itself at boot, so a sys-time wrapper is the
+    # only place we can inject our theme + CSS without forking the entrypoint.
+    _orig_launch = demo.launch
+
+    def _launch_with_theme(*args, **kwargs):
+        kwargs.setdefault("theme", theme)
+        kwargs.setdefault("css", CSS)
+        return _orig_launch(*args, **kwargs)
+
+    demo.launch = _launch_with_theme
 
     return demo

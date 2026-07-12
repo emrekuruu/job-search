@@ -1,0 +1,11 @@
+# Results-viewer Space. This is a *reader* of the bucket the daily agent fills — it runs
+# no model, scrapes nothing, and parses no PDFs. So none of the search Space's heavy deps
+# (torch, llama-cpp-python, python-jobspy, pymupdf) belong here: it boots in seconds on a
+# free cpu-basic box.
+gradio==6.15.2
+huggingface_hub>=1.23
+
+# pydantic-settings arrives via job_search.schemas -> job_search.config, which owns the
+# five scoring DIMENSIONS the FitEvaluation validator checks against.
+pydantic>=2.11.10,<=2.12.5
+pydantic-settings>=2.3

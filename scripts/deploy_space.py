@@ -1,18 +1,25 @@
-"""Deploy the Gradio app to a HuggingFace Space.
+"""Deploy one of the project's two Gradio Spaces.
 
-The project README at the repo root is the **GitHub-facing** project page (no YAML
-frontmatter). The Space's README, with `hardware: zero-gpu` and friends, lives at
-`scripts/space_readme.md` and is uploaded separately as `README.md` on the Space.
+  search  — the interactive demo. Upload a resume, watch the distilled student generate
+            queries, scrape LinkedIn and score the matches live. Needs a GPU (ZeroGPU).
+  results — the reader for the daily agent's bucket. Ranked matches + Reviewed/Applied
+            ticks. No model, no scraping: runs on free cpu-basic.
+
+Each Space owns its README (with YAML frontmatter) and its requirements.txt under
+`scripts/spaces/<name>/`. The root README.md is the GitHub-facing project page and is
+never uploaded.
 
 Run:
-  uv run python scripts/deploy_space.py
+  uv run python scripts/deploy_space.py --space search
+  uv run python scripts/deploy_space.py --space results --bucket emrekuruu/job-agent
 """
 from __future__ import annotations
 
 import argparse
 import os
-import subprocess
+import shutil
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 try:
@@ -23,89 +30,118 @@ except ImportError:
     )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
 DEFAULT_OWNER = "emrekuruu"
-DEFAULT_NAME = "job-search-assistant"
 
-# Code + config files shipped to the Space. The Space's README is uploaded separately from
-# `scripts/space_readme.md` — the root README.md is the GitHub-facing project README.
-ALLOW_PATTERNS = [
-    "app.py",
-    "pyproject.toml",
-    "requirements.txt",
-    ".python-version",
-    "src/**/*.py",
-]
 IGNORE_PATTERNS = [
     "**/__pycache__/**",
     "**/.pytest_cache/**",
     "**/.ruff_cache/**",
 ]
-SPACE_README_SRC = PROJECT_ROOT / "scripts" / "space_readme.md"
+
+# Shared by both Spaces. `src/**/*.py` ships whole — the modules a given Space doesn't
+# import (llama_cpp, jobspy) simply never load, and keeping one list avoids a Space
+# breaking because a new shared module wasn't added to its allow-list.
+_COMMON_ALLOW = ["pyproject.toml", "requirements.txt", ".python-version", "src/**/*.py"]
 
 
-def generate_requirements() -> Path:
-    """Export the locked `space` group deps to requirements.txt for HF Spaces.
+@dataclass(frozen=True)
+class SpaceSpec:
+    name: str
+    app_file: str
+    #: Space *variables* (public, non-secret). Values may be filled in from CLI args.
+    variables: dict[str, str] = field(default_factory=dict)
+    #: True when the Space writes to the Hub and therefore needs a write-scoped HF_TOKEN.
+    needs_write_token: bool = False
 
-    `uv export --group space --no-dev` resolves: main runtime + space group.
-    `--no-emit-project` strips the workspace self-reference (HF Spaces' Gradio-SDK
-    Dockerfile installs requirements.txt before copying the workspace, so an editable
-    install isn't possible at that step — `app.py` instead adds `src/` to `sys.path`).
+    @property
+    def config_dir(self) -> Path:
+        return PROJECT_ROOT / "scripts" / "spaces" / self.key
+
+    @property
+    def key(self) -> str:
+        return _KEY_BY_NAME[self.name]
+
+    @property
+    def allow_patterns(self) -> list[str]:
+        return [self.app_file, *_COMMON_ALLOW]
+
+
+SPACES: dict[str, SpaceSpec] = {
+    "search": SpaceSpec(name="job-search-assistant", app_file="app.py"),
+    "results": SpaceSpec(
+        name="job-matches",
+        app_file="app_results.py",
+        needs_write_token=True,
+    ),
+}
+_KEY_BY_NAME = {spec.name: key for key, spec in SPACES.items()}
+
+
+def stage_requirements(spec: SpaceSpec) -> Path:
+    """Copy the Space's requirements.txt to the repo root so the allow-list picks it up.
+
+    NOT generated via `uv export`: the search Space's llama-cpp-python recipe relies on
+    `--extra-index-url` directives that uv's exporter does not emit reliably. The two
+    Spaces have deliberately different dependency sets — the results viewer ships none of
+    the model/scraping stack — so the canonical lists live per-Space under scripts/spaces/.
     """
+    src = spec.config_dir / "requirements.txt"
+    if not src.exists():
+        sys.exit(f"Missing {src} — each Space needs its own requirements.txt.")
     out = PROJECT_ROOT / "requirements.txt"
-    subprocess.run(
-        [
-            "uv", "export",
-            "--group", "space",
-            "--no-dev",
-            "--no-emit-project",
-            "--no-hashes",
-            "--format", "requirements-txt",
-            "-o", str(out),
-        ],
-        check=True,
-        cwd=PROJECT_ROOT,
-    )
+    shutil.copyfile(src, out)
     return out
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Deploy the Gradio app to a HuggingFace Space.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    ap.add_argument("--space", required=True, choices=sorted(SPACES), help="Which Space to deploy")
     ap.add_argument("--owner", default=DEFAULT_OWNER, help="HF user or org slug")
-    ap.add_argument("--name", default=DEFAULT_NAME, help="Space repo name")
+    ap.add_argument("--name", default=None, help="Override the Space repo name")
     ap.add_argument(
-        "--private", action="store_true",
-        help="Create as a private Space (default: public)",
+        "--bucket", default=None,
+        help="Bucket the results viewer reads, e.g. emrekuruu/job-agent (required for --space results)",
     )
-    ap.add_argument(
-        "--commit-message", default="Deploy from local",
-        help="Commit message for the upload",
-    )
+    ap.add_argument("--private", action="store_true", help="Create as a private Space")
+    ap.add_argument("--commit-message", default="Deploy from local")
     args = ap.parse_args()
 
-    if not SPACE_README_SRC.exists():
+    spec = SPACES[args.space]
+    repo_id = f"{args.owner}/{args.name or spec.name}"
+
+    readme = spec.config_dir / "README.md"
+    if not readme.exists():
+        sys.exit(f"Missing {readme} — the Space's README (with YAML frontmatter) must exist.")
+
+    variables = dict(spec.variables)
+    if args.space == "results":
+        if not args.bucket:
+            sys.exit("--space results needs --bucket (the viewer has nothing to read otherwise).")
+        variables["JOB_AGENT_BUCKET"] = args.bucket
+
+    token = os.environ.get("HF_TOKEN")
+    if not token:
+        print(
+            "ℹ️  HF_TOKEN not set in env — using the token saved by `hf auth login` for the "
+            "upload itself."
+        )
+    if spec.needs_write_token and not token:
+        # The viewer writes status.json back to the bucket, so unlike the demo Space it
+        # needs a token *of its own* at runtime. We can only forward one we can read.
         sys.exit(
-            f"Missing {SPACE_README_SRC} — the Space's README (with YAML frontmatter) "
-            "must live at scripts/space_readme.md."
+            "--space results needs HF_TOKEN in your env: the viewer writes the "
+            "Reviewed/Applied ticks back to the bucket, so the token has to be pushed to "
+            "the Space as a secret. Export a write-scoped token and re-run."
         )
 
-    repo_id = f"{args.owner}/{args.name}"
     api = HfApi()
 
-    if not os.environ.get("HF_TOKEN"):
-        print(
-            "ℹ️  HF_TOKEN not set in env — using the token saved by "
-            "`hf auth login`. If you haven't logged in yet, do that first."
-        )
+    print(f"→ Staging requirements.txt from {spec.config_dir.relative_to(PROJECT_ROOT)} ...")
+    stage_requirements(spec)
 
-    # 1) Build requirements.txt from the uv `space` group.
-    print("→ Exporting space deps to requirements.txt ...")
-    generate_requirements()
-
-    # 2) Create the Space (idempotent).
     print(f"→ Ensuring Space exists: {repo_id} ...")
     api.create_repo(
         repo_id=repo_id,
@@ -115,30 +151,38 @@ def main() -> None:
         exist_ok=True,
     )
 
-    # 3) Upload the Space-specific README (with YAML frontmatter) as README.md.
-    print(f"→ Uploading Space README from {SPACE_README_SRC.name} ...")
+    for key, value in variables.items():
+        print(f"→ Setting Space variable {key}={value} ...")
+        api.add_space_variable(repo_id=repo_id, key=key, value=value)
+
+    if spec.needs_write_token:
+        print("→ Setting Space secret HF_TOKEN (needed to persist Reviewed/Applied ticks) ...")
+        api.add_space_secret(repo_id=repo_id, key="HF_TOKEN", value=token)
+
+    print(f"→ Uploading Space README from {readme.relative_to(PROJECT_ROOT)} ...")
     api.upload_file(
-        path_or_fileobj=str(SPACE_README_SRC),
+        path_or_fileobj=str(readme),
         path_in_repo="README.md",
         repo_id=repo_id,
         repo_type="space",
         commit_message=args.commit_message,
     )
 
-    # 4) Upload code + config (whitelist; everything else stays local).
     print("→ Uploading code + config ...")
     api.upload_folder(
         folder_path=str(PROJECT_ROOT),
         repo_id=repo_id,
         repo_type="space",
-        allow_patterns=ALLOW_PATTERNS,
+        allow_patterns=spec.allow_patterns,
         ignore_patterns=IGNORE_PATTERNS,
         commit_message=args.commit_message,
     )
 
     url = f"https://huggingface.co/spaces/{repo_id}"
     print(f"\n✅ Deployed: {url}")
-    print("   The Space rebuilds automatically; first build takes ~3 min.")
+    if args.space == "search":
+        print("   Reminder: ZeroGPU must be selected in the Space's Settings — the frontmatter")
+        print("   cannot assign hardware. First build takes ~3 min.")
 
 
 if __name__ == "__main__":

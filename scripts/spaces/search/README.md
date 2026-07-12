@@ -1,5 +1,5 @@
 ---
-title: Job Search Assistant
+title: Job Searcher
 emoji: 🎯
 colorFrom: indigo
 colorTo: purple
@@ -9,10 +9,10 @@ app_file: app.py
 hardware: zero-gpu
 python_version: "3.12"
 pinned: false
-short_description: Upload a resume, get ranked + explained LinkedIn matches
+short_description: Drop your resume. Get matches with reasoning.
 tags:
-  - transformers
-  - peft
+  - llama-cpp
+  - gguf
   - lora
   - qwen3
   - distillation
@@ -25,11 +25,14 @@ datasets:
   - emrekuruu/job-search-distill
 ---
 
-# Job Search Assistant
+# Job Searcher
 
-Drop a resume, get ranked LinkedIn jobs with reasoning.
+Drop your resume. Get matches with the reasoning behind every score.
 
-A Qwen3-8B student distilled from DeepSeek V4 Pro, served via transformers + PEFT on ZeroGPU.
+A Qwen3-8B student distilled from DeepSeek V4 Pro, served via llama.cpp on ZeroGPU.
 
 **Source, dataset card, model cards, and full docs:**
 [github.com/emrekuruu/job-search](https://github.com/emrekuruu/job-search)
+
+**Discuss on Reddit:**
+[r/huggingface thread](https://www.reddit.com/r/huggingface/comments/1u2qlmk/built_a_small_model_that_reads_your_resume_and/)

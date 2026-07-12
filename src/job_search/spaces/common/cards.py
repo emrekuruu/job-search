@@ -6,15 +6,29 @@ from job_search.schemas import FitEvaluation, JobListing, JobQuery
 
 
 def _score_band(score: int) -> str:
-    """Return 'high' / 'mid' / 'low' — drives both the badge gradient and the card accent."""
-    if score >= 80:
-        return "high"
-    if score >= 60:
-        return "mid"
-    return "low"
+    """Return 'green' / 'yellow' / 'orange' / 'red'. Drives both badge and card accent."""
+    if score >= 70:
+        return "green"
+    if score >= 50:
+        return "yellow"
+    if score >= 30:
+        return "orange"
+    return "red"
 
 
-def render_job_card(job: JobListing, evaluation: FitEvaluation) -> str:
+def render_job_card(
+    job: JobListing,
+    evaluation: FitEvaluation,
+    *,
+    reviewed: bool = False,
+    applied: bool = False,
+) -> str:
+    """The ranked-result card.
+
+    `reviewed` / `applied` are only ever set by the results-viewer Space, which tracks them
+    in its own `status.json`; the interactive demo Space leaves them at their defaults and
+    renders exactly as it always has.
+    """
     band = _score_band(evaluation.total)
     title = html.escape(job.title)
     company = html.escape(job.company or "Unknown company")
@@ -31,13 +45,20 @@ def render_job_card(job: JobListing, evaluation: FitEvaluation) -> str:
         for d in evaluation.dimensions
     )
 
+    pills = ""
+    if applied:
+        pills += '<span class="status-pill status-applied">✓ Applied</span>'
+    elif reviewed:
+        pills += '<span class="status-pill status-reviewed">✓ Reviewed</span>'
+    done = " card-done" if (reviewed or applied) else ""
+
     return f"""
-    <div class="job-card score-{band}">
+    <div class="job-card score-{band}{done}">
         <div class="card-accent"></div>
         <span class="score-badge score-{band}">
             {evaluation.total}<small>/100</small>
         </span>
-        <h3>{title}</h3>
+        <h3>{title}{pills}</h3>
         <div class="meta">
             <strong>{company}</strong> &middot; {location} &middot;
             <a href="{url}" target="_blank" rel="noopener">View on LinkedIn ↗</a>

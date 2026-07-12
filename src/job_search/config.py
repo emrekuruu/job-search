@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     deepseek_api_key: str | None = None
     teacher_model: str = "deepseek-v4-pro"
 
+    # --- Hugging Face Hub (the agent's Storage Bucket) ---
+    # Read explicitly rather than letting HfApi() resolve a token ambiently: its fallback is
+    # whatever `hf auth login` cached, which is easily a different account than the one in
+    # .env — and writing a profile's jobs into the wrong namespace would fail silently.
+    hf_token: str | None = None
+
     # Teacher request controls (per-call generation settings)
     teacher_temperature: float = 1.0
     teacher_max_tokens: int = 16_000

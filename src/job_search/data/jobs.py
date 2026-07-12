@@ -23,8 +23,19 @@ def _clean(value: object) -> str | None:
     return text or None
 
 
-def fetch_jobs_for_query(query: JobQuery, results_wanted: int) -> list[JobListing]:
-    """Scrape LinkedIn for one query. Returns parsed listings (descriptions included)."""
+def fetch_jobs_for_query(
+    query: JobQuery,
+    results_wanted: int,
+    *,
+    offset: int = 0,
+    hours_old: int | None = None,
+) -> list[JobListing]:
+    """Scrape LinkedIn for one query. Returns parsed listings (descriptions included).
+
+    `offset` pages deeper into the result list — the daily agent uses it to keep digging
+    past jobs it has already evaluated. `hours_old` restricts to recent postings.
+    Both default to jobspy's own defaults, so existing callers are unaffected.
+    """
     from jobspy import scrape_jobs
 
     df = scrape_jobs(
@@ -34,6 +45,8 @@ def fetch_jobs_for_query(query: JobQuery, results_wanted: int) -> list[JobListin
         is_remote=query.is_remote,
         job_type=query.job_type,
         results_wanted=results_wanted,
+        offset=offset,
+        hours_old=hours_old,
         linkedin_fetch_description=True,
     )
 
