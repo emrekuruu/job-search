@@ -11,7 +11,8 @@ from typing import Any
 from job_search import store
 from job_search.agent import report, search
 from job_search.agent.config import ProfileConfig
-from job_search.agents import evaluate_fit, generate_queries
+from job_search.agent.evaluate import evaluate_fit_strict
+from job_search.agents import generate_queries
 from job_search.concurrency import map_to_jsonl
 from job_search.config import settings
 from job_search.preferences import build_input, none_if_any
@@ -62,22 +63,32 @@ async def run_profile(bucket: str, profile: str, target_new_jobs: int | None) ->
         queries = queryset.queries[: cfg.n_queries]
         print(f"[{profile}] queries: {[q.search_term for q in queries]}")
 
-        # --- scrape until we have target_new_jobs previously-unseen postings ---
-        new_jobs, scraped = search.collect_unseen(queries, cfg, seen_urls)
+        # --- scrape until we have target_new_jobs postings worth evaluating ---
+        h = search.collect_unseen(queries, cfg, seen_urls)
+
+        if h.rejected:
+            print(f"[{profile}] screened out {h.rejected_total} before evaluating:")
+            for reason, n in h.rejected.most_common():
+                print(f"    {n:>4}x  {reason}")
 
         # A run that scrapes nothing at all is broken, not quiet — almost always LinkedIn
         # throttling this IP. Fail loudly so the Job goes red instead of silently writing
         # an empty day.
-        if scraped == 0:
+        if h.scraped == 0:
             raise RuntimeError(
                 f"[{profile}] LinkedIn returned 0 listings across "
                 f"{cfg.max_scrape_rounds} rounds x {len(queries)} queries. "
                 "Almost certainly rate-limited / blocked; consider proxies."
             )
 
+        new_jobs = h.jobs
         if not new_jobs:
-            print(f"[{profile}] scraped {scraped} listings, all already evaluated — nothing new today.")
-            return _log(profile, started_at, cfg, queries, scraped, 0, 0)
+            print(
+                f"[{profile}] scraped {h.scraped}, but nothing survived to evaluate "
+                f"({h.already_evaluated} already done, {h.rejected_total} screened out) "
+                "— nothing new today."
+            )
+            return _log(profile, started_at, cfg, queries, h, 0)
 
         # --- evaluate (teacher, concurrent) ---
         # map_to_jsonl appends+flushes each record as it lands (crash-safe) and rebuilds
@@ -85,7 +96,7 @@ async def run_profile(bucket: str, profile: str, target_new_jobs: int | None) ->
         # of collect_unseen. Per-item failures are logged and skipped — correct for a
         # nightly batch — but a 100% failure rate is a broken run, caught below.
         async def work(job: JobListing) -> dict[str, Any]:
-            evaluation, reasoning = await evaluate_fit(full_input, job, model=model)
+            evaluation, reasoning = await evaluate_fit_strict(full_input, job, model=model)
             return {
                 "saved_at": _utc_now(),
                 "job": job.model_dump(),
@@ -113,7 +124,7 @@ async def run_profile(bucket: str, profile: str, target_new_jobs: int | None) ->
         report_path = workdir / store.REPORT
         rows = report.build_xlsx(evaluations_path, status, report_path)
 
-        log = _log(profile, started_at, cfg, queries, scraped, len(new_jobs), written)
+        log = _log(profile, started_at, cfg, queries, h, written)
         ps.upload([
             (evaluations_path, store.EVALUATIONS),
             (report_path, store.REPORT),
@@ -129,8 +140,7 @@ def _log(
     started_at: str,
     cfg: ProfileConfig,
     queries: list[Any],
-    scraped: int,
-    unseen: int,
+    h: search.Harvest,
     evaluated: int,
 ) -> dict[str, Any]:
     return {
@@ -139,8 +149,13 @@ def _log(
         "finished_at": _utc_now(),
         "category": cfg.category,
         "queries": [q.model_dump() for q in queries],
-        "scraped": scraped,
-        "unseen": unseen,
+        "scraped": h.scraped,
+        "already_evaluated": h.already_evaluated,
+        # Kept per-reason: a screen quietly eating every result should look like a screen
+        # problem in the log, not like "LinkedIn had a slow day".
+        "screened_out": h.rejected_total,
+        "screened_out_by_reason": dict(h.rejected.most_common()),
+        "to_evaluate": len(h.jobs),
         "evaluated": evaluated,
         "target_new_jobs": cfg.target_new_jobs,
     }

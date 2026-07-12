@@ -29,6 +29,20 @@ def _bucket() -> str:
     return bucket
 
 
+SORT_BEST = "Best match"
+SORT_NEWEST = "Newest first"
+SORT_CHOICES = [SORT_BEST, SORT_NEWEST]
+
+
+def sort_records(records: list[dict[str, Any]], how: str) -> list[dict[str, Any]]:
+    """Best match = score desc, ties broken by newest. Newest = the reverse."""
+    if how == SORT_NEWEST:
+        key = lambda r: (r["saved_at"], r["evaluation"]["total"])  # noqa: E731
+    else:
+        key = lambda r: (r["evaluation"]["total"], r["saved_at"])  # noqa: E731
+    return sorted(records, key=key, reverse=True)
+
+
 def load_profile(profile: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Fetch one profile's evaluations (ranked, best first) and its reviewed/applied ticks."""
     ps = ProfileStore(_bucket(), profile)
@@ -45,8 +59,7 @@ def load_profile(profile: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         records = list(read_jsonl(evaluations_path))
         status = ps.read_json_optional(store.STATUS, workdir)
 
-    records.sort(key=lambda r: r["evaluation"]["total"], reverse=True)
-    return records, status
+    return sort_records(records, SORT_BEST), status
 
 
 def save_status(profile: str, status: dict[str, Any]) -> None:
@@ -99,15 +112,23 @@ def build_app() -> gr.Blocks:
         with gr.Column(visible=False) as results_section:
             with gr.Row():
                 summary_html = gr.HTML()
+                sort_by = gr.Dropdown(
+                    choices=SORT_CHOICES,
+                    value=SORT_BEST,
+                    label="Sort by",
+                    scale=0,
+                    min_width=170,
+                )
                 hide_done = gr.Checkbox(label="Hide reviewed", value=False, scale=0)
                 switch_btn = gr.Button("Switch profile", scale=0)
 
-            @gr.render(inputs=[jobs_state, status_state, hide_done, profile_state])
+            @gr.render(inputs=[jobs_state, status_state, hide_done, profile_state, sort_by])
             def render_jobs(
                 records: list[dict[str, Any]],
                 status: dict[str, Any],
                 hide: bool,
                 profile: str,
+                how: str,
             ) -> None:
                 if not records:
                     gr.Markdown(
@@ -117,7 +138,7 @@ def build_app() -> gr.Blocks:
                     return
 
                 shown = 0
-                for rec in records:
+                for rec in sort_records(records, how):
                     job = JobListing.model_validate(rec["job"])
                     evaluation = FitEvaluation.model_validate(rec["evaluation"])
                     st = status.get(job.job_url, {})
@@ -130,7 +151,11 @@ def build_app() -> gr.Blocks:
                     with gr.Group():
                         gr.HTML(
                             render_job_card(
-                                job, evaluation, reviewed=reviewed, applied=applied
+                                job,
+                                evaluation,
+                                reviewed=reviewed,
+                                applied=applied,
+                                saved_at=rec["saved_at"],
                             )
                         )
                         with gr.Row(elem_classes=["job-row-actions"]):

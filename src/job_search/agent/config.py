@@ -26,6 +26,22 @@ class ProfileConfig(BaseModel):
     location: str | None
     extra: str | None
 
+    # --- Deterministic screen, applied before a posting reaches the evaluator ---------
+    # These cost nothing and cannot be argued with, unlike the same rules written as prose
+    # in `extra`. See agent/filters.py. All are case-insensitive regexes.
+    #
+    # Required, with no defaults: `[]` is a fine answer, but it should be one you chose —
+    # a silently-empty screen is a screen you think is running and isn't.
+
+    #: The posting's location must match at least ONE of these, or it's dropped. An
+    #: allow-list, because the places a candidate *can't* work outnumber the ones they can.
+    require_location_patterns: list[str]
+    #: Matched against the TITLE only — seniority, contract type. Not the description,
+    #: where "reports to the Director" would knock out a perfectly good junior role.
+    exclude_title_patterns: list[str]
+    #: Matched against title + description — the posting's language, stated requirements.
+    exclude_text_patterns: list[str]
+
     # Search shape.
     n_queries: int = Field(gt=0)
     results_per_query: int = Field(gt=0)

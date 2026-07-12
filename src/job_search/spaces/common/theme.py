@@ -1049,4 +1049,28 @@ details[open] > summary { margin-bottom: 4px; }
     margin: 0 auto;
     text-align: center;
 }
+
+/* When the job landed in the bucket. Sits at the end of the card's meta line. */
+.card-added {
+    margin-left: 10px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--body-text-color-subdued);
+    background: color-mix(in srgb, var(--block-background-fill) 30%, transparent);
+    white-space: nowrap;
+}
+
+/* Gradio 6 stamps a copy/fullscreen icon-button cluster onto Markdown and HTML blocks.
+   Over the hero it has no backdrop to sit on and renders as a stray white pill floating
+   beside the title. Nothing in this app wants those controls. */
+#hero .icon-button-wrapper,
+#hero .icon-button,
+#hero button[aria-label*="ullscreen"],
+#hero button[title*="ullscreen"],
+#hero button[aria-label*="opy"],
+.gradio-container #hero button.svelte-1s1ay8x {
+    display: none !important;
+}
 """

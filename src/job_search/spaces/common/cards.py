@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+from datetime import datetime
 
 from job_search.schemas import FitEvaluation, JobListing, JobQuery
 
@@ -16,18 +17,29 @@ def _score_band(score: int) -> str:
     return "red"
 
 
+def _added_label(saved_at: str) -> str:
+    """'2026-07-12T06:00:11Z' -> 'Added 12 Jul'. Falls back to the raw string if it isn't
+    the timestamp we wrote — better a slightly ugly label than a crash in the viewer."""
+    try:
+        dt = datetime.strptime(saved_at, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return html.escape(saved_at)
+    return f"Added {dt.day} {dt:%b}"
+
+
 def render_job_card(
     job: JobListing,
     evaluation: FitEvaluation,
     *,
     reviewed: bool = False,
     applied: bool = False,
+    saved_at: str | None = None,
 ) -> str:
     """The ranked-result card.
 
-    `reviewed` / `applied` are only ever set by the results-viewer Space, which tracks them
-    in its own `status.json`; the interactive demo Space leaves them at their defaults and
-    renders exactly as it always has.
+    `reviewed` / `applied` / `saved_at` are only ever set by the results-viewer Space, which
+    reads them from its own `status.json` and from the agent's evaluation records; the
+    interactive demo Space leaves them at their defaults and renders exactly as it always has.
     """
     band = _score_band(evaluation.total)
     title = html.escape(job.title)
@@ -35,6 +47,9 @@ def render_job_card(
     location = html.escape(job.location or "Location not listed")
     url = html.escape(job.job_url)
     overall = html.escape(evaluation.overall_reasoning)
+    added = (
+        f'<span class="card-added">{_added_label(saved_at)}</span>' if saved_at else ""
+    )
 
     dim_rows = "".join(
         f"""<tr>
@@ -62,6 +77,7 @@ def render_job_card(
         <div class="meta">
             <strong>{company}</strong> &middot; {location} &middot;
             <a href="{url}" target="_blank" rel="noopener">View on LinkedIn ↗</a>
+            {added}
         </div>
         <div class="overall">{overall}</div>
         <details>
