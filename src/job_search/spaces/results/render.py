@@ -12,7 +12,8 @@ import html
 from datetime import datetime
 from typing import Any
 
-from job_search.schemas import FitEvaluation, JobListing, JobQuery
+from job_search.agent.feedback import query_stats
+from job_search.schemas import FitEvaluation, JobListing
 
 PAGE_SIZE = 20
 
@@ -22,8 +23,6 @@ SORT_CHOICES = [SORT_BEST, SORT_NEWEST]
 
 DEFAULT_MIN_SCORE = 50
 MAX_RATING = 10
-# Records written before the agent recorded which query surfaced each posting.
-UNATTRIBUTED = "Before query tracking (older runs)"
 # (label, value) for the toolbar dropdown. Low scores exist in the file but are noise for
 # a daily skim, hence the default floor.
 MIN_SCORE_CHOICES = [
@@ -236,48 +235,6 @@ def page_label(page: int, n_selected: int) -> str:
 
 
 # ---- queries ------------------------------------------------------------------------------
-
-
-def _query_label(rec: dict[str, Any]) -> str:
-    if "query" not in rec:
-        return UNATTRIBUTED
-    q = JobQuery.model_validate(rec["query"])
-    bits = [q.search_term]
-    if q.location:
-        bits.append(q.location)
-    if q.is_remote:
-        bits.append("remote")
-    if q.job_type:
-        bits.append(q.job_type)
-    return " · ".join(bits)
-
-
-def query_stats(records: list[dict[str, Any]], status: dict[str, Any]) -> list[dict[str, Any]]:
-    """One row per distinct query: how many postings it surfaced, the model's mean score,
-    the user's mean rating (and how many they rated), and how many are strong (70+).
-    Sorted by user rating, then model score — the point is to see which searches earn
-    their keep."""
-    groups: dict[str, list[dict[str, Any]]] = {}
-    for rec in records:
-        groups.setdefault(_query_label(rec), []).append(rec)
-
-    rows: list[dict[str, Any]] = []
-    for label, recs in groups.items():
-        ratings = [r for r in (_rating(status, x["job"]["job_url"]) for x in recs) if r]
-        rows.append({
-            "query": label,
-            "jobs": len(recs),
-            "strong": sum(1 for r in recs if r["evaluation"]["total"] >= 70),
-            "avg_score": sum(r["evaluation"]["total"] for r in recs) / len(recs),
-            "rated": len(ratings),
-            "avg_rating": (sum(ratings) / len(ratings)) if ratings else None,
-            "applied": sum(1 for r in recs if _is_applied(status, r["job"]["job_url"])),
-        })
-    rows.sort(
-        key=lambda r: (r["avg_rating"] if r["avg_rating"] is not None else -1, r["avg_score"]),
-        reverse=True,
-    )
-    return rows
 
 
 def render_query_stats(records: list[dict[str, Any]], status: dict[str, Any]) -> str:

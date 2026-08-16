@@ -12,9 +12,11 @@ from job_search import store
 from job_search.agent import report, search
 from job_search.agent.config import ProfileConfig
 from job_search.agent.evaluate import evaluate_fit_strict
+from job_search.agent.feedback import build_query_feedback
 from job_search.agents import generate_queries
 from job_search.concurrency import map_to_jsonl
 from job_search.config import settings
+from job_search.io_utils import read_jsonl
 from job_search.preferences import build_input, none_if_any
 from job_search.providers import get_model
 from job_search.schemas import JobListing
@@ -59,6 +61,17 @@ async def run_profile(bucket: str, profile: str, target_new_jobs: int | None) ->
         prefs = (none_if_any(cfg.job_type), none_if_any(cfg.modality), none_if_any(cfg.location))
         query_input = build_input(resume_text, cfg.search_instructions, *prefs)
         eval_input = build_input(resume_text, cfg.evaluation_instructions, *prefs)
+
+        # Close the loop: tell the query writer how its past searches did (model scores +
+        # the candidate's star ratings from the viewer), across live and archived records.
+        past_records = [
+            rec for path in [evaluations_path, *archived_paths] if path.exists()
+            for rec in read_jsonl(path)
+        ]
+        feedback = build_query_feedback(past_records, status)
+        if feedback:
+            query_input = f"{query_input}\n\n{feedback}"
+            print(f"[{profile}] query feedback:\n{feedback}")
 
         # --- queries (teacher) ---
         model = get_model("deepseek")
