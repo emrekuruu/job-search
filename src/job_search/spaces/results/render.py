@@ -19,7 +19,8 @@ PAGE_SIZE = 20
 
 SORT_BEST = "Best match"
 SORT_NEWEST = "Newest first"
-SORT_CHOICES = [SORT_BEST, SORT_NEWEST]
+SORT_RATING = "Your rating"
+SORT_CHOICES = [SORT_BEST, SORT_RATING, SORT_NEWEST]
 
 DEFAULT_MIN_SCORE = 50
 MAX_RATING = 10
@@ -56,12 +57,19 @@ def _rating(status: dict[str, Any], url: str) -> int | None:
     return int(value) if value is not None else None
 
 
-def sort_records(records: list[dict[str, Any]], how: str) -> list[dict[str, Any]]:
-    """Best match = score desc, ties broken by newest. Newest = the reverse."""
+def sort_records(
+    records: list[dict[str, Any]], how: str, status: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Best match = score desc, ties by newest. Newest = the reverse. Your rating = the
+    user's stars desc (unrated last), ties by score — for going back to apply."""
     if how == SORT_NEWEST:
         key = lambda r: (r["saved_at"], r["evaluation"]["total"])  # noqa: E731
     elif how == SORT_BEST:
         key = lambda r: (r["evaluation"]["total"], r["saved_at"])  # noqa: E731
+    elif how == SORT_RATING:
+        key = lambda r: (  # noqa: E731
+            _rating(status, r["job"]["job_url"]) or 0, r["evaluation"]["total"], r["saved_at"]
+        )
     else:
         raise ValueError(f"Unknown sort {how!r}; expected one of {SORT_CHOICES}")
     return sorted(records, key=key, reverse=True)
@@ -72,19 +80,11 @@ def select_records(
     status: dict[str, Any],
     *,
     min_score: int,
-    hide_rated: bool,
     sort: str,
 ) -> list[dict[str, Any]]:
-    """Apply the toolbar: score floor, hide-rated (rated = already looked at), then sort."""
-    out: list[dict[str, Any]] = []
-    for rec in records:
-        if rec["evaluation"]["total"] < min_score:
-            continue
-        url = rec["job"]["job_url"]
-        if hide_rated and _rating(status, url) and not _is_applied(status, url):
-            continue
-        out.append(rec)
-    return sort_records(out, sort)
+    """Apply the toolbar: score floor, then sort."""
+    out = [rec for rec in records if rec["evaluation"]["total"] >= min_score]
+    return sort_records(out, sort, status)
 
 
 def page_count(n_records: int) -> int:
@@ -166,7 +166,7 @@ def render_card(rec: dict[str, Any], status: dict[str, Any]) -> str:
         for d in ev.dimensions
     )
 
-    state_cls = " is-applied" if applied else (" is-rated" if rating else "")
+    state_cls = " is-applied" if applied else ""
     return f"""
 <article class="rv-card band-{band}{state_cls}">
   <div class="rv-score"><b>{ev.total}</b><small>/100</small></div>
@@ -204,8 +204,8 @@ def render_empty(*, has_records: bool) -> str:
             "Check back after the next scheduled search.</p></div>"
         )
     return (
-        '<div class="rv-empty"><h3>Nothing matches these filters</h3>'
-        "<p>Lower the minimum score or untick <em>Hide rated</em>.</p></div>"
+        '<div class="rv-empty"><h3>Nothing at this score</h3>'
+        "<p>Lower the minimum score.</p></div>"
     )
 
 

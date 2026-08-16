@@ -102,7 +102,6 @@ def view(
     records: list[dict[str, Any]],
     status: dict[str, Any],
     min_score: int,
-    hide_rated: bool,
     sort: str,
     page: int,
 ) -> tuple[str, str, int, dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -111,7 +110,6 @@ def view(
         records,
         status,
         min_score=min_score,
-        hide_rated=hide_rated,
         sort=sort,
     )
     page = R.clamp_page(int(page), len(selected))
@@ -174,13 +172,12 @@ def build_app() -> gr.Blocks:
                     with gr.Row(elem_id="rv-toolbar"):
                         min_score = gr.Dropdown(
                             choices=R.MIN_SCORE_CHOICES, value=R.DEFAULT_MIN_SCORE,
-                            label="Minimum score", scale=1, min_width=140,
+                            label="Minimum score", scale=0, min_width=180,
                         )
                         sort_by = gr.Dropdown(
                             choices=R.SORT_CHOICES, value=R.SORT_BEST, label="Sort",
-                            scale=1, min_width=140,
+                            scale=0, min_width=180,
                         )
-                        hide_done = gr.Checkbox(label="Hide rated", value=False, scale=0)
 
                     list_html = gr.HTML(js_on_load=JS_ON_LOAD, elem_id="rv-list")
 
@@ -241,7 +238,7 @@ def build_app() -> gr.Blocks:
                     queries_html = gr.HTML()
 
         # ---- wiring
-        view_inputs = [records_state, status_state, min_score, hide_done, sort_by, page_state]
+        view_inputs = [records_state, status_state, min_score, sort_by, page_state]
         view_outputs = [list_html, pager_label, page_state, prev_btn, next_btn, clear_btn]
 
         def open_profile(profile: str):
@@ -307,7 +304,7 @@ def build_app() -> gr.Blocks:
         switch_btn.click(close_profile, outputs=open_outputs)
 
         # Any filter change -> back to page 1 -> re-render.
-        for ev in (min_score.change, sort_by.change, hide_done.change):
+        for ev in (min_score.change, sort_by.change):
             ev(lambda: 1, outputs=[page_state]).then(
                 view, inputs=view_inputs, outputs=view_outputs
             )

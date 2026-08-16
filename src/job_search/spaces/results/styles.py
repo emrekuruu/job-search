@@ -87,7 +87,7 @@ body, .gradio-container { background: var(--rv-bg) !important; color: var(--rv-t
 #rv-toolbar {
   background: var(--rv-surface); border: 1px solid var(--rv-border);
   border-radius: 12px; padding: 8px 12px; margin: 10px 0 14px;
-  align-items: end; gap: 10px;
+  align-items: end; gap: 24px;
 }
 #rv-toolbar .block, #rv-toolbar .form { background: transparent !important; border: none !important; box-shadow: none !important; padding: 0; }
 #rv-toolbar label > span, #rv-toolbar label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--rv-muted); }
@@ -121,7 +121,6 @@ body, .gradio-container { background: var(--rv-bg) !important; color: var(--rv-t
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .rv-card:hover { box-shadow: 0 4px 18px rgba(0,0,0,.06); }
-.rv-card.is-rated { opacity: .8; }
 .rv-card.is-applied  { border-color: var(--rv-high); }
 .rv-score {
   display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 18px;
@@ -216,8 +215,6 @@ element.addEventListener('click', (e) => {
   if (!star) return;
   const n = Number(star.dataset.value);
   const wrap = star.closest('.rv-rating');
-  const card = star.closest('.rv-card');
-  if (card && !card.classList.contains('is-applied')) card.classList.add('is-rated');
   wrap.querySelectorAll('.rv-star').forEach(s => s.classList.toggle('on', Number(s.dataset.value) <= n));
   wrap.querySelector('.rv-rating-label').textContent = n + '/10';
   trigger('click', {url: star.dataset.url, field: 'rating', value: n});
