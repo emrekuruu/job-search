@@ -24,7 +24,13 @@ class ProfileConfig(BaseModel):
     job_type: str | None
     modality: str | None
     location: str | None
-    extra: str | None
+
+    # Free-text instructions, appended to the resume + preferences that the model sees.
+    # Two fields because the two calls want different things: the query writer needs
+    # "what to search for" (titles, areas, places), the evaluator needs "how to judge"
+    # (hard disqualifiers, seniority, language). Editable from the viewer's Task tab.
+    search_instructions: str | None
+    evaluation_instructions: str | None
 
     # --- Deterministic screen, applied before a posting reaches the evaluator ---------
     # These cost nothing and cannot be argued with, unlike the same rules written as prose

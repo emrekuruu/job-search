@@ -25,10 +25,18 @@ resume and preferences — skips every posting it has already scored, evaluates 
 against the resume across five weighted dimensions, and appends the results to a Storage
 Bucket.
 
-This Space renders them: open a profile, see the matches ranked best-first with the full
-reasoning behind every score, and tick **Reviewed** / **Applied** as you work through them.
-The ticks are saved back to the bucket, so they survive a refresh and show up in the Excel
-report the agent regenerates each run.
+This Space renders them, 20 to a page, best match first and 50+ by default:
+
+- **Matches** — every posting with the full reasoning behind its score. Tick **Reviewed** /
+  **Applied**, and rate each one out of 10 stars. Everything is saved back to the bucket, so
+  it survives a refresh and shows up in the Excel report the agent regenerates each run.
+  **Clear all matches** archives the whole list to `archive/<timestamp>/` when it gets too
+  long — the agent still remembers them, so they won't be re-scraped.
+- **Task** — the two notes the agent gets on top of the resume: *search instructions* for the
+  model that writes the LinkedIn queries, *evaluation instructions* for the model that scores
+  each posting (hard disqualifiers, seniority, language). Edit and save; the next run uses it.
+- **Queries** — which searches surfaced which postings, with the model's average score and
+  your average star rating per query, so weak queries are easy to spot and cut.
 
 The scoring model is the distilled student from
 [job-searcher-qwen3-8B](https://huggingface.co/emrekuruu/job-searcher-qwen3-8B) — try it

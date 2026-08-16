@@ -18,6 +18,9 @@ INTER_SCRAPE_SLEEP = 2.0
 @dataclass
 class Harvest:
     jobs: list[JobListing] = field(default_factory=list)
+    #: job_url -> the query that surfaced it (first one wins; LinkedIn returns the same
+    #: posting under several searches).
+    query_by_url: dict[str, JobQuery] = field(default_factory=dict)
     scraped: int = 0
     already_evaluated: int = 0
     #: reject reason -> count. Surfaced in the run log so a screen that is quietly eating
@@ -29,16 +32,20 @@ class Harvest:
         return sum(self.rejected.values())
 
 
-def load_seen_urls(evaluations_path: Path) -> set[str]:
+def load_seen_urls(evaluations_path: Path, archived_paths: list[Path]) -> set[str]:
     """Every job_url this profile has ever evaluated.
 
     `job_url` is the de-facto primary key throughout the codebase, and `evaluations.jsonl`
     is the complete record of what has been scored — so it doubles as the "have I seen this
-    before?" index. No separate index file to keep in sync.
+    before?" index. No separate index file to keep in sync. When the viewer clears the
+    list, the file moves to `archive/`, and those records still count as seen — otherwise
+    a clear would make the next run re-scrape and re-score the same postings.
     """
-    if not evaluations_path.exists():
-        return set()
-    return {rec["job"]["job_url"] for rec in read_jsonl(evaluations_path)}
+    seen: set[str] = set()
+    for path in [evaluations_path, *archived_paths]:
+        if path.exists():
+            seen.update(rec["job"]["job_url"] for rec in read_jsonl(path))
+    return seen
 
 
 def collect_unseen(
@@ -84,6 +91,7 @@ def collect_unseen(
                     continue
                 seen.add(job.job_url)
                 h.jobs.append(job)
+                h.query_by_url[job.job_url] = query
 
             print(
                 f"  round {round_i + 1}/{cfg.max_scrape_rounds} offset={offset:<3} "

@@ -14,6 +14,8 @@ _WIDTHS: dict[str, int] = {
     "score": 8,
     "reviewed": 10,
     "applied": 9,
+    "rating": 8,
+    "query": 30,
     "title": 42,
     "company": 26,
     "location": 26,
@@ -34,6 +36,10 @@ def _row(rec: dict[str, Any], status: dict[str, Any]) -> dict[str, Any]:
         "score": ev["total"],
         "reviewed": bool(st.get("reviewed", False)),
         "applied": bool(st.get("applied", False)),
+        # The user's 1-10 stars from the viewer; blank until they rate it.
+        "rating": st.get("rating"),
+        # Absent on records written before query attribution existed.
+        "query": rec["query"]["search_term"] if "query" in rec else None,
         "title": job["title"],
         "company": job["company"],
         "location": job["location"],
@@ -63,7 +69,7 @@ def build_xlsx(evaluations_path: Path, status: dict[str, Any], dest: Path) -> in
     records = list(read_jsonl(evaluations_path))
     rows = [_row(rec, status) for rec in records]
     columns = [
-        "saved_at", "score", "reviewed", "applied",
+        "saved_at", "score", "reviewed", "applied", "rating", "query",
         "title", "company", "location", "job_url",
         *[d.name for d in DIMENSIONS],
         "overall_reasoning",

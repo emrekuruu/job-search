@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,10 @@ CONFIG = "config.json"
 EVALUATIONS = "evaluations.jsonl"
 STATUS = "status.json"
 REPORT = "evaluations.xlsx"
+# Cleared batches land here: `archive/<utc-ts>/{evaluations.jsonl,status.json}`. The
+# viewer's "Clear all" moves rather than deletes, because evaluations.jsonl doubles as
+# the agent's already-seen index — see agent/search.load_seen_urls.
+ARCHIVE = "archive"
 
 
 def get_api() -> HfApi:
@@ -32,7 +37,7 @@ class ProfileStore:
     """Read/write one profile's folder in a Hugging Face Storage Bucket.
 
     Layout: ``profiles/<profile>/{resume.pdf, config.json, evaluations.jsonl,
-    status.json, evaluations.xlsx, runs/<utc-ts>.json}``
+    status.json, evaluations.xlsx, runs/<utc-ts>.json, archive/<utc-ts>/...}``
 
     **File ownership is the concurrency design and must not be violated.** The daily
     agent owns `evaluations.jsonl`, `evaluations.xlsx` and `runs/`; the results Space
@@ -90,6 +95,43 @@ class ProfileStore:
                 for src, name in items
             ],
         )
+
+    def archived_evaluations(self) -> list[str]:
+        """Names (relative to the profile folder) of every archived evaluations file."""
+        return sorted(
+            n for n in self.list_names()
+            if n.startswith(f"{ARCHIVE}/") and n.endswith(f"/{EVALUATIONS}")
+        )
+
+    def clear_evaluations(self, stamp: str) -> None:
+        """Move evaluations.jsonl (+ status.json) to `archive/<stamp>/` in ONE batch.
+
+        The archive keeps the record and the seen-URL index; the live files disappear so
+        the viewer starts empty and the agent appends fresh. Raises if there is nothing
+        to clear. Concurrency note: this touches the agent-owned file, so it must not run
+        while the daily job is mid-flight — the job would re-upload its local copy and
+        resurrect the cleared jobs. Runs are minutes long at a fixed hour, so the viewer
+        simply refuses nothing; the caller decides when.
+        """
+        names = self.list_names()
+        if EVALUATIONS not in names:
+            raise ValueError("Nothing to clear: this profile has no evaluations.")
+        with tempfile.TemporaryDirectory(prefix="job-clear-") as tmp:
+            workdir = Path(tmp)
+            self.download(EVALUATIONS, workdir / EVALUATIONS)
+            add: list[tuple[bytes | Path, str]] = [
+                ((workdir / EVALUATIONS).read_bytes(), f"{ARCHIVE}/{stamp}/{EVALUATIONS}")
+            ]
+            delete = [self.key(EVALUATIONS)]
+            if STATUS in names:
+                self.download(STATUS, workdir / STATUS)
+                add.append(((workdir / STATUS).read_bytes(), f"{ARCHIVE}/{stamp}/{STATUS}"))
+                delete.append(self.key(STATUS))
+            self.api.batch_bucket_files(
+                self.bucket,
+                add=[(src, self.key(name)) for src, name in add],
+                delete=delete,
+            )
 
     def read_json(self, name: str, workdir: Path) -> dict[str, Any]:
         """Download and parse a REQUIRED json file."""

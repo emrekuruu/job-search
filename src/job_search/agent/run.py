@@ -45,21 +45,24 @@ async def run_profile(bucket: str, profile: str, target_new_jobs: int | None) ->
         ps.download_optional(store.EVALUATIONS, evaluations_path)
         status = ps.read_json_optional(store.STATUS, workdir)
 
-        seen_urls = search.load_seen_urls(evaluations_path)
-        print(f"[{profile}] {len(seen_urls)} jobs already evaluated; want {cfg.target_new_jobs} new")
+        archived_paths: list[Path] = []
+        for name in ps.archived_evaluations():
+            ps.download(name, workdir / name)
+            archived_paths.append(workdir / name)
+        seen_urls = search.load_seen_urls(evaluations_path, archived_paths)
+        print(
+            f"[{profile}] {len(seen_urls)} jobs already evaluated "
+            f"({len(archived_paths)} archived batches); want {cfg.target_new_jobs} new"
+        )
 
         resume_text = extract_resume_text(resume_path)
-        full_input = build_input(
-            resume_text,
-            cfg.extra,
-            none_if_any(cfg.job_type),
-            none_if_any(cfg.modality),
-            none_if_any(cfg.location),
-        )
+        prefs = (none_if_any(cfg.job_type), none_if_any(cfg.modality), none_if_any(cfg.location))
+        query_input = build_input(resume_text, cfg.search_instructions, *prefs)
+        eval_input = build_input(resume_text, cfg.evaluation_instructions, *prefs)
 
         # --- queries (teacher) ---
         model = get_model("deepseek")
-        queryset, _ = await generate_queries(full_input, cfg.category, model=model)
+        queryset, _ = await generate_queries(query_input, cfg.category, model=model)
         queries = queryset.queries[: cfg.n_queries]
         print(f"[{profile}] queries: {[q.search_term for q in queries]}")
 
@@ -96,10 +99,13 @@ async def run_profile(bucket: str, profile: str, target_new_jobs: int | None) ->
         # of collect_unseen. Per-item failures are logged and skipped — correct for a
         # nightly batch — but a 100% failure rate is a broken run, caught below.
         async def work(job: JobListing) -> dict[str, Any]:
-            evaluation, reasoning = await evaluate_fit_strict(full_input, job, model=model)
+            evaluation, reasoning = await evaluate_fit_strict(eval_input, job, model=model)
             return {
                 "saved_at": _utc_now(),
                 "job": job.model_dump(),
+                # Which search surfaced this posting — the viewer aggregates the user's
+                # star ratings per query so weak queries can be seen and cut.
+                "query": h.query_by_url[job.job_url].model_dump(),
                 "evaluation": evaluation.model_dump(),
                 "reasoning": reasoning,
             }
