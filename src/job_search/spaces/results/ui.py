@@ -233,7 +233,7 @@ def build_app() -> gr.Blocks:
                     gr.Markdown(
                         "Which searches actually earn their keep. Rate postings with the stars "
                         "on the Matches tab; the average per query shows up here. Weak queries "
-                        "are a hint for the search instructions on the Task tab."
+                        "are a hint for the search instructions on the Instructions tab — and the agent sees this table too."
                     )
                     queries_html = gr.HTML()
 

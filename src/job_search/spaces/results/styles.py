@@ -90,6 +90,8 @@ body, .gradio-container { background: var(--rv-bg) !important; color: var(--rv-t
   align-items: end; gap: 24px;
 }
 #rv-toolbar .block, #rv-toolbar .form { background: transparent !important; border: none !important; box-shadow: none !important; padding: 0; }
+#rv-toolbar .form { flex-direction: row !important; flex-wrap: nowrap; width: 100% !important; gap: 28px !important; }
+#rv-toolbar .form > * { flex: 0 1 220px !important; }
 #rv-toolbar label > span, #rv-toolbar label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--rv-muted); }
 
 /* ---- tabs ---- */
@@ -171,15 +173,16 @@ body, .gradio-container { background: var(--rv-bg) !important; color: var(--rv-t
   background: none; border: none; padding: 0 1px; margin: 0; cursor: pointer;
   font-size: 1.05rem; line-height: 1; color: var(--rv-border); transition: color .1s;
 }
-.rv-star.on { color: #f59e0b; }
-.rv-rating:hover .rv-star { color: var(--rv-border); }
-.rv-rating .rv-star:hover, .rv-rating .rv-star:has(~ .rv-star:hover) { color: #f59e0b; }
+.rv-rating .rv-star.on { color: #f59e0b !important; }
+.rv-rating .rv-star:hover, .rv-rating .rv-star:has(~ .rv-star:hover) { color: #f59e0b !important; }
 .rv-rating-label { margin-left: 6px; font-size: 0.8rem; color: var(--rv-muted); min-width: 3.2em; }
 .rv-query { color: var(--rv-muted); }
 
 /* ---- queries table ---- */
-.rv-table-wrap { overflow-x: auto; border: 1px solid var(--rv-border); border-radius: 12px; background: var(--rv-surface); }
-.rv-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; color: var(--rv-text); }
+.rv-table-wrap { overflow: hidden; overflow-x: auto; border: 1px solid var(--rv-border); border-radius: 12px; background: var(--rv-surface); }
+.rv-table, .prose .rv-table { width: 100%; margin: 0; border-collapse: collapse; font-size: 0.9rem; color: var(--rv-text); background: transparent !important; border: none !important; }
+.rv-table th, .rv-table td, .prose .rv-table th, .prose .rv-table td { background: transparent !important; border-left: none !important; border-right: none !important; }
+.rv-table thead tr, .rv-table tbody tr, .prose .rv-table tr { background: transparent !important; }
 .rv-table th { text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--rv-muted); padding: 10px 12px; border-bottom: 1px solid var(--rv-border); white-space: nowrap; }
 .rv-table td { padding: 10px 12px; border-bottom: 1px solid var(--rv-border); vertical-align: middle; }
 .rv-table tr:last-child td { border-bottom: none; }
