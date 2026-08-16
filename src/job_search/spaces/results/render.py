@@ -46,10 +46,6 @@ def _added_label(saved_at: str) -> str:
 # ---- filtering / sorting / paging -------------------------------------------------------
 
 
-def _is_reviewed(status: dict[str, Any], url: str) -> bool:
-    return bool(status.get(url, {}).get("reviewed", False))
-
-
 def _is_applied(status: dict[str, Any], url: str) -> bool:
     return bool(status.get(url, {}).get("applied", False))
 
@@ -76,16 +72,16 @@ def select_records(
     status: dict[str, Any],
     *,
     min_score: int,
-    hide_reviewed: bool,
+    hide_rated: bool,
     sort: str,
 ) -> list[dict[str, Any]]:
-    """Apply the toolbar: score floor, hide-reviewed, then sort."""
+    """Apply the toolbar: score floor, hide-rated (rated = already looked at), then sort."""
     out: list[dict[str, Any]] = []
     for rec in records:
         if rec["evaluation"]["total"] < min_score:
             continue
         url = rec["job"]["job_url"]
-        if hide_reviewed and _is_reviewed(status, url) and not _is_applied(status, url):
+        if hide_rated and _rating(status, url) and not _is_applied(status, url):
             continue
         out.append(rec)
     return sort_records(out, sort)
@@ -109,14 +105,14 @@ def page_slice(records: list[dict[str, Any]], page: int) -> list[dict[str, Any]]
 
 def render_summary(records: list[dict[str, Any]], status: dict[str, Any]) -> str:
     total = len(records)
-    reviewed = sum(1 for r in records if _is_reviewed(status, r["job"]["job_url"]))
+    rated = sum(1 for r in records if _rating(status, r["job"]["job_url"]))
     applied = sum(1 for r in records if _is_applied(status, r["job"]["job_url"]))
     strong = sum(1 for r in records if r["evaluation"]["total"] >= 70)
     return (
         '<div class="rv-stats">'
         f'<div class="rv-stat"><span class="rv-stat-n">{total}</span><span class="rv-stat-l">evaluated</span></div>'
         f'<div class="rv-stat"><span class="rv-stat-n">{strong}</span><span class="rv-stat-l">strong (70+)</span></div>'
-        f'<div class="rv-stat"><span class="rv-stat-n">{reviewed}</span><span class="rv-stat-l">reviewed</span></div>'
+        f'<div class="rv-stat"><span class="rv-stat-n">{rated}</span><span class="rv-stat-l">rated</span></div>'
         f'<div class="rv-stat"><span class="rv-stat-n">{applied}</span><span class="rv-stat-l">applied</span></div>'
         "</div>"
     )
@@ -151,7 +147,6 @@ def _tick(url: str, field: str, checked: bool, label: str) -> str:
 def render_card(rec: dict[str, Any], status: dict[str, Any]) -> str:
     job = JobListing.model_validate(rec["job"])
     ev = FitEvaluation.model_validate(rec["evaluation"])
-    reviewed = _is_reviewed(status, job.job_url)
     applied = _is_applied(status, job.job_url)
     rating = _rating(status, job.job_url)
     band = _band(ev.total)
@@ -171,7 +166,7 @@ def render_card(rec: dict[str, Any], status: dict[str, Any]) -> str:
         for d in ev.dimensions
     )
 
-    state_cls = " is-applied" if applied else (" is-reviewed" if reviewed else "")
+    state_cls = " is-applied" if applied else (" is-rated" if rating else "")
     return f"""
 <article class="rv-card band-{band}{state_cls}">
   <div class="rv-score"><b>{ev.total}</b><small>/100</small></div>
@@ -193,7 +188,6 @@ def render_card(rec: dict[str, Any], status: dict[str, Any]) -> str:
       <ul class="rv-dims">{dims}</ul>
     </details>
     <div class="rv-actions">
-      {_tick(url, "reviewed", reviewed, "Reviewed")}
       {_tick(url, "applied", applied, "Applied")}
       {_stars(url, rating)}
       <a class="rv-open" href="{url}" target="_blank" rel="noopener">Open posting ↗</a>
@@ -211,8 +205,7 @@ def render_empty(*, has_records: bool) -> str:
         )
     return (
         '<div class="rv-empty"><h3>Nothing matches these filters</h3>'
-        "<p>Lower the minimum score, clear the search, or untick "
-        "<em>Hide reviewed</em>.</p></div>"
+        "<p>Lower the minimum score or untick <em>Hide rated</em>.</p></div>"
     )
 
 

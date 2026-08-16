@@ -121,7 +121,7 @@ body, .gradio-container { background: var(--rv-bg) !important; color: var(--rv-t
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .rv-card:hover { box-shadow: 0 4px 18px rgba(0,0,0,.06); }
-.rv-card.is-reviewed { opacity: .72; }
+.rv-card.is-rated { opacity: .8; }
 .rv-card.is-applied  { border-color: var(--rv-high); }
 .rv-score {
   display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 18px;
@@ -216,6 +216,8 @@ element.addEventListener('click', (e) => {
   if (!star) return;
   const n = Number(star.dataset.value);
   const wrap = star.closest('.rv-rating');
+  const card = star.closest('.rv-card');
+  if (card && !card.classList.contains('is-applied')) card.classList.add('is-rated');
   wrap.querySelectorAll('.rv-star').forEach(s => s.classList.toggle('on', Number(s.dataset.value) <= n));
   wrap.querySelector('.rv-rating-label').textContent = n + '/10';
   trigger('click', {url: star.dataset.url, field: 'rating', value: n});
@@ -224,12 +226,7 @@ element.addEventListener('change', (e) => {
   const box = e.target;
   if (!(box instanceof HTMLInputElement) || !box.dataset.field) return;
   const card = box.closest('.rv-card');
-  if (card) {
-    const rev = card.querySelector('input[data-field="reviewed"]').checked;
-    const app = card.querySelector('input[data-field="applied"]').checked;
-    card.classList.toggle('is-applied', app);
-    card.classList.toggle('is-reviewed', rev && !app);
-  }
+  if (card) card.classList.toggle('is-applied', box.checked);
   trigger('click', {url: box.dataset.url, field: box.dataset.field, value: box.checked});
 });
 """

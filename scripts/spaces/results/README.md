@@ -27,8 +27,8 @@ Bucket.
 
 This Space renders them, 20 to a page, best match first and 50+ by default:
 
-- **Matches** — every posting with the full reasoning behind its score. Tick **Reviewed** /
-  **Applied**, and rate each one out of 10 stars. Everything is saved back to the bucket, so
+- **Matches** — every posting with the full reasoning behind its score. Rate each one out
+  of 10 stars and tick **Applied**. Everything is saved back to the bucket, so
   it survives a refresh and shows up in the Excel report the agent regenerates each run.
   **Clear all matches** archives the whole list to `archive/<timestamp>/` when it gets too
   long — the agent still remembers them, so they won't be re-scraped.

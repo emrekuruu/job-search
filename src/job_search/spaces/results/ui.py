@@ -50,7 +50,7 @@ def _bucket() -> str:
 def load_profile(
     profile: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
-    """Fetch one profile's evaluation records, its reviewed/applied ticks, and its config.
+    """Fetch one profile's evaluation records, its ratings/applied ticks, and its config.
 
     One listing call, then the downloads — the old version listed the folder three times
     per open.
@@ -102,7 +102,7 @@ def view(
     records: list[dict[str, Any]],
     status: dict[str, Any],
     min_score: int,
-    hide_reviewed: bool,
+    hide_rated: bool,
     sort: str,
     page: int,
 ) -> tuple[str, str, int, dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -111,7 +111,7 @@ def view(
         records,
         status,
         min_score=min_score,
-        hide_reviewed=hide_reviewed,
+        hide_rated=hide_rated,
         sort=sort,
     )
     page = R.clamp_page(int(page), len(selected))
@@ -144,7 +144,8 @@ def build_app() -> gr.Blocks:
                 gr.Markdown("# Your Matches")
                 gr.Markdown(
                     "Every posting your agent found, scored and explained. "
-                    "Tick what you've looked at; it's saved to the bucket."
+                    "Rate what you've looked at and tick what you applied to; "
+                    "it's saved to the bucket."
                 )
             with gr.Column(scale=0, min_width=220, visible=False) as profile_col:
                 profile_chip = gr.HTML()
@@ -179,7 +180,7 @@ def build_app() -> gr.Blocks:
                             choices=R.SORT_CHOICES, value=R.SORT_BEST, label="Sort",
                             scale=1, min_width=140,
                         )
-                        hide_done = gr.Checkbox(label="Hide reviewed", value=False, scale=0)
+                        hide_done = gr.Checkbox(label="Hide rated", value=False, scale=0)
 
                     list_html = gr.HTML(js_on_load=JS_ON_LOAD, elem_id="rv-list")
 
@@ -403,8 +404,8 @@ def build_app() -> gr.Blocks:
                 if not 1 <= value <= R.MAX_RATING:
                     raise ValueError(f"rating {value} out of range 1..{R.MAX_RATING}")
                 entry["rating"] = value
-            elif evt.field in ("reviewed", "applied"):
-                entry[evt.field] = bool(evt.value)
+            elif evt.field == "applied":
+                entry["applied"] = bool(evt.value)
             else:
                 raise ValueError(f"unknown status field {evt.field!r}")
             entry["updated_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

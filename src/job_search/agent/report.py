@@ -12,7 +12,6 @@ SHEET = "Matches"
 _WIDTHS: dict[str, int] = {
     "saved_at": 20,
     "score": 8,
-    "reviewed": 10,
     "applied": 9,
     "rating": 8,
     "query": 30,
@@ -34,7 +33,6 @@ def _row(rec: dict[str, Any], status: dict[str, Any]) -> dict[str, Any]:
     row: dict[str, Any] = {
         "saved_at": rec["saved_at"],
         "score": ev["total"],
-        "reviewed": bool(st.get("reviewed", False)),
         "applied": bool(st.get("applied", False)),
         # The user's 1-10 stars from the viewer; blank until they rate it.
         "rating": st.get("rating"),
@@ -54,7 +52,7 @@ def _row(rec: dict[str, Any], status: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_xlsx(evaluations_path: Path, status: dict[str, Any], dest: Path) -> int:
-    """Rebuild the Excel report in full from evaluations.jsonl + the reviewed/applied ticks.
+    """Rebuild the Excel report in full from evaluations.jsonl + the viewer's ratings/applied ticks.
 
     Regenerated from scratch every run rather than appended to, so it can never drift from
     the JSONL that is the source of truth, and a crashed run can't leave a half-written
@@ -69,7 +67,7 @@ def build_xlsx(evaluations_path: Path, status: dict[str, Any], dest: Path) -> in
     records = list(read_jsonl(evaluations_path))
     rows = [_row(rec, status) for rec in records]
     columns = [
-        "saved_at", "score", "reviewed", "applied", "rating", "query",
+        "saved_at", "score", "applied", "rating", "query",
         "title", "company", "location", "job_url",
         *[d.name for d in DIMENSIONS],
         "overall_reasoning",
